@@ -34,7 +34,8 @@ defmodule FerricStore.MixProject do
   defp deps do
     [
       {:arch_test, "~> 0.3.1", only: [:dev, :test], runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.38", only: :dev, runtime: false}
     ]
   end
 
