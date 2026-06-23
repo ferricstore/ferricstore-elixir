@@ -1,26 +1,15 @@
-name: CI
+name: Release
 
 on:
   push:
-  pull_request:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
 
 jobs:
-  unit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: "28"
-          elixir-version: "1.19"
-      - run: mix deps.get
-      - run: mix format --check-formatted
-      - run: mix compile --warnings-as-errors
-      - run: mix credo --strict
-      - run: mix test --exclude integration
-      - run: mix hex.build
-
-  integration:
+  validate:
     runs-on: ubuntu-latest
     services:
       ferricstore:
@@ -36,6 +25,11 @@ jobs:
           otp-version: "28"
           elixir-version: "1.19"
       - run: mix deps.get
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix credo --strict
+      - run: mix test --exclude integration
+      - run: mix hex.build
       - run: |
           for i in {1..60}; do
             mix run -e 'client = FerricStore.connect!(url: "ferric://127.0.0.1:6388"); FerricStore.ping(client); FerricStore.close(client)' && exit 0
@@ -43,3 +37,17 @@ jobs:
           done
           exit 1
       - run: mix test --only integration
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+      - run: mix deps.get
+      - run: mix hex.publish --yes
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}

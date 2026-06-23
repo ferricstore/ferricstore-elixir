@@ -9,26 +9,43 @@ defmodule FerricStore do
   defdelegate connect!(opts \\ []), to: Client
   defdelegate close(client), to: Client
   defdelegate pipeline(client, commands, opts \\ []), to: Client
+  defdelegate async_pipeline(client, commands, opts \\ []), to: Client
+  defdelegate async_native(client, opcode, payload, opts \\ []), to: Client
+  defdelegate await(ref, timeout \\ 5_000), to: Client
+  defdelegate yield(ref, timeout \\ 0), to: Client
 
   def command(client, command, args \\ [], opts \\ []) do
     Client.command(client, command, args, opts)
   end
 
   def ping(client), do: command(client, "PING")
-  def get(client, key), do: command(client, "GET", [key])
+
+  def get(client, key),
+    do: Client.native(client, FerricStore.Protocol.opcode(:get), %{"key" => key})
 
   def set(client, key, value, opts \\ []) do
-    response = command(client, "SET", [key, value] ++ set_opts(opts))
+    response =
+      Client.native(
+        client,
+        FerricStore.Protocol.opcode(:set),
+        %{"key" => key, "value" => value} |> put_if_present("ttl_ms", Keyword.get(opts, :ttl_ms))
+      )
+
     if response == "OK", do: :ok, else: response
   end
 
   def delete(client, keys) when is_list(keys), do: command(client, "DEL", keys)
   def delete(client, key), do: delete(client, [key])
-  def mget(client, keys), do: command(client, "MGET", keys)
 
-  def mset(client, pairs) when is_map(pairs) do
-    args = Enum.flat_map(pairs, fn {key, value} -> [key, value] end)
-    command(client, "MSET", args)
+  def mget(client, keys),
+    do: Client.native(client, FerricStore.Protocol.opcode(:mget), %{"keys" => keys})
+
+  def mset(client, pairs) when is_map(pairs), do: mset(client, Map.to_list(pairs))
+
+  def mset(client, pairs) when is_list(pairs) do
+    Client.native(client, FerricStore.Protocol.opcode(:mset), %{
+      "pairs" => Enum.map(pairs, &kv_pair/1)
+    })
   end
 
   def hset(client, key, field, value), do: command(client, "HSET", [key, field, value])
@@ -55,23 +72,18 @@ defmodule FerricStore do
 
   def zscore(client, key, member), do: command(client, "ZSCORE", [key, member])
 
-  defp set_opts(opts) do
-    []
-    |> append_opt("EX", Keyword.get(opts, :ex))
-    |> append_opt("PX", Keyword.get(opts, :px))
-    |> append_flag("NX", Keyword.get(opts, :nx))
-    |> append_flag("XX", Keyword.get(opts, :xx))
-  end
-
   defp zrange_opts(opts) do
     []
     |> append_flag("WITHSCORES", Keyword.get(opts, :with_scores))
     |> append_flag("REV", Keyword.get(opts, :rev))
   end
 
-  defp append_opt(args, _name, nil), do: args
-  defp append_opt(args, name, value), do: args ++ [name, value]
   defp append_flag(args, _name, nil), do: args
   defp append_flag(args, _name, false), do: args
   defp append_flag(args, name, true), do: args ++ [name]
+  defp put_if_present(map, _key, nil), do: map
+  defp put_if_present(map, key, value), do: Map.put(map, key, value)
+
+  defp kv_pair({key, value}), do: [key, value]
+  defp kv_pair([key, value]), do: [key, value]
 end

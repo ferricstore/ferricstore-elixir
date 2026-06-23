@@ -67,6 +67,23 @@ defmodule FerricStore.FlowTest do
            }
   end
 
+  test "builds direct create many payload" do
+    assert Flow.create_many_payload(["flow-1", {"flow-2", "payload"}],
+             type: "email",
+             now_ms: 10,
+             independent: true,
+             return_ok_on_success: true
+           ) == %{
+             "items" => [["flow-1", ""], ["flow-2", "payload"]],
+             "type" => "email",
+             "state" => "queued",
+             "now_ms" => 10,
+             "run_at_ms" => 10,
+             "independent" => true,
+             "return" => "OK_ON_SUCCESS"
+           }
+  end
+
   test "claim due defaults to compact jobs with attributes" do
     args = Flow.claim_due_args("email", state: "queued", worker: "w1", now_ms: 100, limit: 10)
 
@@ -85,6 +102,29 @@ defmodule FerricStore.FlowTest do
              "RETURN",
              "JOBS_COMPACT_ATTRS"
            ]
+  end
+
+  test "builds direct claim due payload" do
+    payload =
+      Flow.claim_due_payload("email",
+        state: "queued",
+        worker: "w1",
+        now_ms: 100,
+        limit: 10,
+        include_attributes: false,
+        partition_keys: ["p1", "p2"]
+      )
+
+    assert payload == %{
+             "type" => "email",
+             "state" => "queued",
+             "worker" => "w1",
+             "lease_ms" => 30_000,
+             "limit" => 10,
+             "now_ms" => 100,
+             "return" => "JOBS_COMPACT",
+             "partition_keys" => ["p1", "p2"]
+           }
   end
 
   test "builds transition args" do
@@ -127,6 +167,19 @@ defmodule FerricStore.FlowTest do
              "fencing_token" => 5,
              "result" => "ok",
              "now_ms" => 10
+           }
+  end
+
+  test "builds direct complete many payload" do
+    jobs = [
+      %{"id" => "flow-1", "partition_key" => "p1", "lease_token" => "l1", "fencing_token" => 1},
+      %{"id" => "flow-2", "lease_token" => "l2", "fencing_token" => 2}
+    ]
+
+    assert Flow.complete_many_payload(jobs, now_ms: 10, return_ok_on_success: true) == %{
+             "items" => [["flow-1", "p1", "l1", 1], ["flow-2", "l2", 2]],
+             "now_ms" => 10,
+             "return" => "OK_ON_SUCCESS"
            }
   end
 end

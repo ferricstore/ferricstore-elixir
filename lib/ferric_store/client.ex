@@ -1,10 +1,11 @@
 defmodule FerricStore.Client do
   @moduledoc """
-  Synchronous native-protocol client.
+  Native-protocol client.
 
-  A client process owns one `ferric://` socket. Calls are serialized through the
-  process, which keeps the first implementation safe and predictable. Throughput
-  pooling/multiplexing can be layered above this API without changing callers.
+  A client process owns one `ferric://` socket. After startup/authentication the
+  default mode is request-id multiplexing: callers can issue concurrent
+  `GenServer.call/3` requests, the client sends frames immediately, and replies
+  are matched by native protocol request id.
   """
 
   use GenServer
@@ -15,7 +16,19 @@ defmodule FerricStore.Client do
   @default_url "ferric://127.0.0.1:6388"
   @default_timeout 5_000
 
-  defstruct [:socket, :transport, :host, :port, :tls, :request_id, :timeout]
+  defstruct [
+    :socket,
+    :transport,
+    :host,
+    :port,
+    :tls,
+    :request_id,
+    :timeout,
+    multiplex: true,
+    pending: %{},
+    buffer: <<>>,
+    chunks: %{}
+  ]
 
   @type t :: GenServer.server()
 
@@ -38,8 +51,36 @@ defmodule FerricStore.Client do
     GenServer.call(client, {:pipeline, commands, opts}, timeout(opts))
   end
 
+  def async_pipeline(client, commands, opts \\ []) when is_list(commands) do
+    ref = make_ref()
+    GenServer.cast(client, {:async_pipeline, self(), ref, commands, opts})
+    ref
+  end
+
   def native(client, opcode, payload, opts \\ []) do
     GenServer.call(client, {:native, opcode, payload, opts}, timeout(opts))
+  end
+
+  def async_native(client, opcode, payload, opts \\ []) do
+    ref = make_ref()
+    GenServer.cast(client, {:async_native, self(), ref, opcode, payload, opts})
+    ref
+  end
+
+  def await(ref, timeout \\ @default_timeout) when is_reference(ref) do
+    receive do
+      {__MODULE__, ^ref, value} -> value
+    after
+      timeout -> {:error, %Error{message: "FerricStore async request timed out", raw: :timeout}}
+    end
+  end
+
+  def yield(ref, timeout \\ 0) when is_reference(ref) do
+    receive do
+      {__MODULE__, ^ref, value} -> {:ok, value}
+    after
+      timeout -> nil
+    end
   end
 
   def close(client) do
@@ -52,48 +93,121 @@ defmodule FerricStore.Client do
   def init(opts) do
     opts = normalize_opts(opts)
 
+    multiplex = Keyword.get(opts, :multiplex, true)
+
     with {:ok, state} <- connect_socket(opts),
          {:ok, _value, state} <-
            request(state, Protocol.opcode(:startup), startup_payload(opts), 0),
          {:ok, state} <- maybe_auth(state, opts) do
-      {:ok, state}
+      state
+      |> Map.put(:multiplex, multiplex)
+      |> activate_socket(multiplex)
     else
+      {:error, %Error{} = error, _state} -> {:stop, error}
+      {:error, reason, _state} -> {:stop, reason}
       {:error, reason} -> {:stop, reason}
     end
   end
 
   @impl true
-  def handle_call({:command, command, args, _opts}, _from, state) do
+  def handle_call({:command, command, args, _opts}, from, state) do
     payload = Protocol.command_payload(command, args)
-
-    case request(state, Protocol.opcode(:command_exec), payload, 1) do
-      {:ok, value, state} -> {:reply, value, state}
-      {:error, error, state} -> {:reply, {:error, error}, state}
-    end
+    dispatch_call_request(state, from, Protocol.opcode(:command_exec), payload, 1)
   end
 
-  def handle_call({:pipeline, commands, _opts}, _from, state) do
-    payload = Protocol.pipeline_payload(commands)
-
-    case request(state, Protocol.opcode(:pipeline), payload, 1) do
-      {:ok, value, state} -> {:reply, value, state}
-      {:error, error, state} -> {:reply, {:error, error}, state}
-    end
+  def handle_call({:pipeline, commands, opts}, from, state) do
+    payload = Protocol.pipeline_payload(commands, opts)
+    dispatch_call_request(state, from, Protocol.opcode(:pipeline), payload, 1)
   end
 
-  def handle_call({:native, opcode, payload, opts}, _from, state) do
+  def handle_call({:native, opcode, payload, opts}, from, state) do
     lane_id = Keyword.get(opts, :lane_id, 1)
-
-    case request(state, opcode, payload, lane_id) do
-      {:ok, value, state} -> {:reply, value, state}
-      {:error, error, state} -> {:reply, {:error, error}, state}
-    end
+    dispatch_call_request(state, from, opcode, payload, lane_id)
   end
 
   def handle_call(:close, _from, state) do
     close_socket(state)
     {:stop, :normal, :ok, state}
   end
+
+  @impl true
+  def handle_cast({:async_pipeline, caller, ref, commands, opts}, state) do
+    payload = Protocol.pipeline_payload(commands, opts)
+    dispatch_async_request(state, caller, ref, Protocol.opcode(:pipeline), payload, 1)
+  end
+
+  def handle_cast({:async_native, caller, ref, opcode, payload, opts}, state) do
+    lane_id = Keyword.get(opts, :lane_id, 1)
+    dispatch_async_request(state, caller, ref, opcode, payload, lane_id)
+  end
+
+  defp dispatch_call_request(%{multiplex: true} = state, from, opcode, payload, lane_id) do
+    request_id = next_request_id(state.request_id)
+    frame = Protocol.encode_request(opcode, request_id, payload, lane_id: lane_id)
+
+    case send_data(state, frame) do
+      :ok ->
+        pending = Map.put(state.pending, request_id, {:call, from, opcode})
+        {:noreply, %{state | request_id: request_id, pending: pending}}
+
+      {:error, reason} ->
+        {:reply, {:error, to_error(reason)}, state}
+    end
+  end
+
+  defp dispatch_call_request(state, _from, opcode, payload, lane_id) do
+    case request(state, opcode, payload, lane_id) do
+      {:ok, value, state} -> {:reply, value, state}
+      {:error, error, state} -> {:reply, {:error, error}, state}
+    end
+  end
+
+  defp dispatch_async_request(%{multiplex: true} = state, caller, ref, opcode, payload, lane_id) do
+    request_id = next_request_id(state.request_id)
+    frame = Protocol.encode_request(opcode, request_id, payload, lane_id: lane_id)
+
+    case send_data(state, frame) do
+      :ok ->
+        pending = Map.put(state.pending, request_id, {:message, caller, ref, opcode})
+        {:noreply, %{state | request_id: request_id, pending: pending}}
+
+      {:error, reason} ->
+        send(caller, {__MODULE__, ref, {:error, to_error(reason)}})
+        {:noreply, state}
+    end
+  end
+
+  defp dispatch_async_request(state, caller, ref, opcode, payload, lane_id) do
+    value =
+      case request(state, opcode, payload, lane_id) do
+        {:ok, value, _state} -> value
+        {:error, error, _state} -> {:error, error}
+      end
+
+    send(caller, {__MODULE__, ref, value})
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:tcp, socket, data}, %{transport: :gen_tcp, socket: socket} = state),
+    do: handle_socket_data(data, state)
+
+  def handle_info({:ssl, socket, data}, %{transport: :ssl, socket: socket} = state),
+    do: handle_socket_data(data, state)
+
+  def handle_info({:tcp_closed, socket}, %{transport: :gen_tcp, socket: socket} = state),
+    do: handle_socket_down(:closed, state)
+
+  def handle_info({:ssl_closed, socket}, %{transport: :ssl, socket: socket} = state),
+    do: handle_socket_down(:closed, state)
+
+  def handle_info({:tcp_error, socket, reason}, %{transport: :gen_tcp, socket: socket} = state),
+    do: handle_socket_down(reason, state)
+
+  def handle_info({:ssl_error, socket, reason}, %{transport: :ssl, socket: socket} = state),
+    do: handle_socket_down(reason, state)
+
+  def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
   def terminate(_reason, state), do: close_socket(state)
@@ -180,27 +294,183 @@ defmodule FerricStore.Client do
     end
   end
 
+  defp handle_socket_data(data, state) do
+    state = %{state | buffer: state.buffer <> data}
+
+    case parse_frames(state) do
+      {:ok, state} ->
+        case set_active_once(state) do
+          :ok -> {:noreply, state}
+          {:error, reason} -> handle_socket_down(reason, state)
+        end
+
+      {:error, reason, state} ->
+        handle_socket_down(reason, state)
+    end
+  end
+
+  defp parse_frames(%{buffer: buffer} = state) do
+    case take_frame(buffer) do
+      :incomplete ->
+        {:ok, state}
+
+      {:ok, header, body, rest} ->
+        state
+        |> Map.put(:buffer, rest)
+        |> process_frame(header, body)
+        |> parse_frames()
+
+      {:error, reason} ->
+        {:error, reason, state}
+    end
+  end
+
+  defp take_frame(buffer) do
+    header_size = Protocol.header_size()
+
+    case buffer do
+      <<header_binary::binary-size(header_size), rest::binary>> ->
+        take_frame_body(header_binary, rest)
+
+      _short ->
+        :incomplete
+    end
+  end
+
+  defp take_frame_body(header_binary, rest) do
+    case Protocol.decode_response_header(header_binary) do
+      {:ok, header} -> take_frame_body(header, rest, header.body_length)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp take_frame_body(_header, rest, body_length) when byte_size(rest) < body_length,
+    do: :incomplete
+
+  defp take_frame_body(header, rest, body_length) do
+    <<body::binary-size(body_length), remaining::binary>> = rest
+    {:ok, header, body, remaining}
+  end
+
+  defp process_frame(%{chunks: chunks} = state, %{request_id: 0}, _body),
+    do: %{state | chunks: chunks}
+
+  defp process_frame(state, header, body) do
+    key = {header.request_id, header.opcode, header.lane_id}
+
+    if Bitwise.band(header.flags, Protocol.flag_more_chunks()) != 0 do
+      %{state | chunks: Map.update(state.chunks, key, [body], &[body | &1])}
+    else
+      {previous_chunks, chunks} = Map.pop(state.chunks, key)
+
+      body =
+        case previous_chunks do
+          nil -> body
+          values -> values |> then(&[body | &1]) |> Enum.reverse() |> IO.iodata_to_binary()
+        end
+
+      state
+      |> Map.put(:chunks, chunks)
+      |> complete_response(header, body)
+    end
+  end
+
+  defp complete_response(state, header, body) do
+    case Map.pop(state.pending, header.request_id) do
+      {nil, pending} ->
+        %{state | pending: pending}
+
+      {{:call, from, expected_opcode}, pending} ->
+        GenServer.reply(from, decode_response_reply(header, expected_opcode, body))
+        %{state | pending: pending}
+
+      {{:message, caller, ref, expected_opcode}, pending} ->
+        send(caller, {__MODULE__, ref, decode_response_reply(header, expected_opcode, body)})
+        %{state | pending: pending}
+    end
+  end
+
+  defp decode_response_reply(header, expected_opcode, body) do
+    case validate_response_header(header, header.request_id, expected_opcode) do
+      :ok ->
+        case Protocol.decode_response_body(header.flags, header.opcode, body) do
+          {:ok, value} ->
+            value
+
+          {:error, {status, value}} ->
+            {:error, %Error{message: error_message(status, value), status: status, raw: value}}
+
+          {:error, %Error{} = error} ->
+            {:error, error}
+
+          {:error, reason} ->
+            {:error, to_error(reason)}
+        end
+
+      {:error, %Error{} = error} ->
+        {:error, error}
+    end
+  end
+
+  defp handle_socket_down(reason, state) do
+    state
+    |> fail_pending(reason)
+    |> close_socket()
+
+    {:stop, reason, %{state | pending: %{}, chunks: %{}, buffer: <<>>}}
+  end
+
+  defp fail_pending(state, reason) do
+    error = to_error(reason)
+
+    Enum.each(state.pending, fn
+      {_request_id, {:call, from, _opcode}} ->
+        GenServer.reply(from, {:error, error})
+
+      {_request_id, {:message, caller, ref, _opcode}} ->
+        send(caller, {__MODULE__, ref, {:error, error}})
+    end)
+
+    state
+  end
+
+  defp to_error(%Error{} = error), do: error
+  defp to_error(reason), do: %Error{message: inspect(reason), raw: reason}
+
   defp receive_response(state, expected_request_id, expected_opcode) do
     with {:ok, header_binary} <- recv_exact(state, Protocol.header_size()),
          {:ok, header} <- Protocol.decode_response_header(header_binary),
          {:ok, body} <- recv_response_body(state, header) do
-      if header.request_id == 0 do
-        receive_response(state, expected_request_id, expected_opcode)
-      else
-        with :ok <- validate_response_header(header, expected_request_id, expected_opcode) do
-          case Protocol.decode_response_body(header.flags, header.opcode, body) do
-            {:ok, value} ->
-              {:ok, value}
-
-            {:error, {status, value}} ->
-              {:error, %Error{message: error_message(status, value), status: status, raw: value}}
-
-            {:error, reason} ->
-              {:error, reason}
-          end
-        end
-      end
+      handle_response_frame(state, header, body, expected_request_id, expected_opcode)
     else
+      {:error, {status, value}} ->
+        {:error, %Error{message: error_message(status, value), status: status, raw: value}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp handle_response_frame(
+         state,
+         %{request_id: 0},
+         _body,
+         expected_request_id,
+         expected_opcode
+       ),
+       do: receive_response(state, expected_request_id, expected_opcode)
+
+  defp handle_response_frame(_state, header, body, expected_request_id, expected_opcode) do
+    with :ok <- validate_response_header(header, expected_request_id, expected_opcode) do
+      decode_response_result(header, body)
+    end
+  end
+
+  defp decode_response_result(header, body) do
+    case Protocol.decode_response_body(header.flags, header.opcode, body) do
+      {:ok, value} ->
+        {:ok, value}
+
       {:error, {status, value}} ->
         {:error, %Error{message: error_message(status, value), status: status, raw: value}}
 
@@ -255,6 +525,12 @@ defmodule FerricStore.Client do
   defp recv(%{transport: :ssl, socket: socket, timeout: timeout}, size),
     do: :ssl.recv(socket, size, timeout)
 
+  defp set_active_once(%{transport: :gen_tcp, socket: socket}),
+    do: :inet.setopts(socket, active: :once)
+
+  defp set_active_once(%{transport: :ssl, socket: socket}),
+    do: :ssl.setopts(socket, active: :once)
+
   defp validate_response_header(%{request_id: request_id, opcode: opcode}, request_id, opcode),
     do: :ok
 
@@ -290,6 +566,15 @@ defmodule FerricStore.Client do
       end
     end
   end
+
+  defp activate_socket(state, true) do
+    case set_active_once(state) do
+      :ok -> {:ok, state}
+      {:error, reason} -> {:stop, reason}
+    end
+  end
+
+  defp activate_socket(state, false), do: {:ok, state}
 
   defp startup_payload(opts) do
     payload = %{"compression" => "none", "compact_flow_responses" => true}

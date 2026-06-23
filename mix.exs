@@ -6,8 +6,20 @@ defmodule FerricStore.MixProject do
       app: :ferricstore_sdk,
       version: "0.1.0",
       elixir: "~> 1.19",
+      description: "Official Elixir SDK for FerricStore over the native ferric:// protocol.",
+      package: package(),
+      source_url: "https://github.com/ferricstore/ferricstore-elixir",
+      homepage_url: "https://github.com/ferricstore/ferricstore-elixir",
       start_permanent: Mix.env() == :prod,
       deps: deps()
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
+        credo: :test
+      ]
     ]
   end
 
@@ -21,8 +33,18 @@ defmodule FerricStore.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      {:arch_test, "~> 0.3.1", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["Apache-2.0"],
+      links: %{
+        "GitHub" => "https://github.com/ferricstore/ferricstore-elixir",
+        "FerricStore" => "https://github.com/ferricstore/ferricstore"
+      }
     ]
   end
 end

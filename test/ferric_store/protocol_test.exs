@@ -19,6 +19,19 @@ defmodule FerricStore.ProtocolTest do
     assert body_len == byte_size(body)
   end
 
+  test "encodes custom payload request frame" do
+    frame =
+      Protocol.encode_request(
+        Protocol.opcode(:flow_create_many),
+        7,
+        Protocol.custom_payload(<<0x90>>)
+      )
+
+    assert <<"FSNP", 1, flags, 1::32, opcode::16, 7::64, 1::32, 0x90>> = frame
+    assert Bitwise.band(flags, Protocol.flag_custom_payload()) != 0
+    assert opcode == Protocol.opcode(:flow_create_many)
+  end
+
   test "builds generic command payload" do
     assert %{"command" => "SET", "args" => ["k", "v"]} =
              Protocol.command_payload(:set, ["k", "v"])
@@ -61,5 +74,123 @@ defmodule FerricStore.ProtocolTest do
 
     assert {:error, {1, "ERR bad"}} =
              Protocol.decode_response_body(0, Protocol.opcode(:ping), error_body)
+  end
+
+  test "decodes compact direct KV responses" do
+    assert {:ok, "OK"} =
+             Protocol.decode_response_body(0, Protocol.opcode(:set), <<0::16, 0x81, 1::32>>)
+
+    assert {:ok, "value"} =
+             Protocol.decode_response_body(
+               0,
+               Protocol.opcode(:get),
+               <<0::16, 0x82, 1, 5::32, "value">>
+             )
+
+    assert {:ok, nil} =
+             Protocol.decode_response_body(0, Protocol.opcode(:get), <<0::16, 0x82, 0>>)
+  end
+
+  test "decodes compact Flow value mget responses" do
+    body = <<0::16, 0x83, 2::32, 1, 5::32, "value", 0>>
+
+    assert {:ok, ["value", nil]} =
+             Protocol.decode_response_body(0, Protocol.opcode(:flow_value_mget), body)
+  end
+
+  test "encodes compact flow create many payload" do
+    assert {:ok, <<0x90, _rest::binary>>} =
+             Protocol.compact_flow_create_many_payload(%{
+               "type" => "email",
+               "state" => "queued",
+               "now_ms" => 10,
+               "run_at_ms" => 10,
+               "independent" => true,
+               "return" => "OK_ON_SUCCESS",
+               "items" => [["flow-1", ""]]
+             })
+  end
+
+  test "direct compact flow create many ids payload matches generic compact payload" do
+    payload = %{
+      "type" => "email",
+      "state" => "queued",
+      "partition_key" => "p1",
+      "now_ms" => 10,
+      "run_at_ms" => 10,
+      "independent" => true,
+      "return" => "OK_ON_SUCCESS",
+      "items" => [["flow-1", ""], ["flow-2", ""]]
+    }
+
+    assert Protocol.compact_flow_create_many_payload(payload) ==
+             Protocol.compact_flow_create_many_ids_payload(
+               "email",
+               "queued",
+               "p1",
+               ["flow-1", "flow-2"],
+               now_ms: 10,
+               run_at_ms: 10,
+               independent: true,
+               return_ok_on_success: true
+             )
+  end
+
+  test "encodes compact flow complete many payload" do
+    assert {:ok, <<0x93, _rest::binary>>} =
+             Protocol.compact_flow_complete_many_payload(%{
+               "now_ms" => 10,
+               "return" => "OK_ON_SUCCESS",
+               "items" => [["flow-1", "p1", "lease-1", 10]]
+             })
+  end
+
+  test "decodes compact pipeline response" do
+    body = <<0::16, 0x95, 2::32, 0, 1, 2::32, "OK", 0, 1, 5::32, "value">>
+
+    assert {:ok, [["ok", "OK"], ["ok", "value"]]} =
+             Protocol.decode_response_body(0, Protocol.opcode(:pipeline), body)
+  end
+
+  test "decodes compact claim_due response" do
+    body =
+      <<
+        0::16,
+        0x80,
+        2::32,
+        6::32,
+        "flow-1",
+        0xFFFF_FFFF::32,
+        7::32,
+        "lease-1",
+        10::signed-64,
+        6::32,
+        "flow-2",
+        2::32,
+        "p1",
+        7::32,
+        "lease-2",
+        11::signed-64
+      >>
+
+    assert {:ok, [["flow-1", nil, "lease-1", 10], ["flow-2", "p1", "lease-2", 11]]} =
+             Protocol.decode_response_body(0, Protocol.opcode(:flow_claim_due), body)
+  end
+
+  test "decodes compact claim_due response with attributes" do
+    attrs = Protocol.encode_value(%{"tenant" => "acme"})
+
+    body =
+      IO.iodata_to_binary([
+        <<0::16, 0x80, 1::32, 6::32>>,
+        "flow-1",
+        <<0xFFFF_FFFF::32, 7::32>>,
+        "lease-1",
+        <<10::signed-64>>,
+        attrs
+      ])
+
+    assert {:ok, [["flow-1", nil, "lease-1", 10, %{"tenant" => "acme"}]]} =
+             Protocol.decode_response_body(0, Protocol.opcode(:flow_claim_due), body)
   end
 end
