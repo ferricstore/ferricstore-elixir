@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      ferricstore:
+        image: ghcr.io/ferricstore/ferricstore:0.5.2
+        env:
+          FERRICSTORE_PROTECTED_MODE: "false"
+        ports:
+          - 6388:6388
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+      - run: |
+          for i in {1..60}; do
+            nc -z 127.0.0.1 6388 && exit 0
+            sleep 1
+          done
+          exit 1
+      - run: FERRICSTORE_INTEGRATION=1 FERRICSTORE_URL=ferric://127.0.0.1:6388 mix test
