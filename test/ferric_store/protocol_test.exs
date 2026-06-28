@@ -37,6 +37,25 @@ defmodule FerricStore.ProtocolTest do
              Protocol.command_payload(:set, ["k", "v"])
   end
 
+  test "builds generic command payload with request context" do
+    assert %{
+             "command" => "SET",
+             "args" => ["k", "v"],
+             "request_context" => %{
+               "subject" => "client-1",
+               "tenant" => "t1",
+               "scopes" => ["tenant:t1:write"]
+             }
+           } =
+             Protocol.command_payload(:set, ["k", "v"],
+               request_context: %{
+                 subject: "client-1",
+                 tenant: "t1",
+                 scopes: ["tenant:t1:write", nil]
+               }
+             )
+  end
+
   test "builds pipeline payload with decoded command bodies" do
     payload = Protocol.pipeline_payload([["SET", "k", "v"]])
 
@@ -49,6 +68,23 @@ defmodule FerricStore.ProtocolTest do
                }
              ]
            } = payload
+  end
+
+  test "builds pipeline payload with top-level request context" do
+    payload =
+      Protocol.pipeline_payload([["SET", "k", "v"]],
+        request_context: %{
+          "subject" => "client-1",
+          "tenant" => "t1",
+          "scopes" => "tenant:t1:write invocation:create:*"
+        }
+      )
+
+    assert payload["request_context"] == %{
+             "subject" => "client-1",
+             "tenant" => "t1",
+             "scopes" => ["tenant:t1:write", "invocation:create:*"]
+           }
   end
 
   test "keeps direct native pipeline command bodies as maps" do

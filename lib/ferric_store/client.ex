@@ -110,8 +110,8 @@ defmodule FerricStore.Client do
   end
 
   @impl true
-  def handle_call({:command, command, args, _opts}, from, state) do
-    payload = Protocol.command_payload(command, args)
+  def handle_call({:command, command, args, opts}, from, state) do
+    payload = Protocol.command_payload(command, args, opts)
     dispatch_call_request(state, from, Protocol.opcode(:command_exec), payload, 1)
   end
 

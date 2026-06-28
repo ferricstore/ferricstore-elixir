@@ -205,8 +205,9 @@ defmodule FerricStore.Protocol do
     end
   end
 
-  def command_payload(command, args \\ []) do
+  def command_payload(command, args \\ [], opts \\ []) do
     %{"command" => normalize_command(command), "args" => Enum.map(args, &normalize_arg/1)}
+    |> maybe_put_request_context(opts)
   end
 
   def pipeline_payload(commands, opts \\ []) when is_list(commands) do
@@ -219,14 +220,70 @@ defmodule FerricStore.Protocol do
 
     payload = %{"atomicity" => "none", "commands" => protocol_commands}
 
-    case Keyword.get(opts, :return) do
-      :compact -> Map.put(payload, "return", "compact")
-      "compact" -> Map.put(payload, "return", "compact")
-      :pairs -> Map.put(payload, "return", "pairs")
-      "pairs" -> Map.put(payload, "return", "pairs")
-      _ -> payload
+    payload =
+      case Keyword.get(opts, :return) do
+        :compact -> Map.put(payload, "return", "compact")
+        "compact" -> Map.put(payload, "return", "compact")
+        :pairs -> Map.put(payload, "return", "pairs")
+        "pairs" -> Map.put(payload, "return", "pairs")
+        _ -> payload
+      end
+
+    maybe_put_request_context(payload, opts)
+  end
+
+  defp maybe_put_request_context(payload, opts) do
+    case normalize_request_context(Keyword.get(opts, :request_context)) do
+      nil -> payload
+      context -> Map.put(payload, "request_context", context)
     end
   end
+
+  defp normalize_request_context(nil), do: nil
+
+  defp normalize_request_context(%{} = context) do
+    %{}
+    |> put_context_value("subject", context_value(context, "subject", :subject))
+    |> put_context_value("tenant", context_value(context, "tenant", :tenant))
+    |> put_context_scopes(context_value(context, "scopes", :scopes))
+    |> empty_to_nil()
+  end
+
+  defp normalize_request_context(_context), do: nil
+
+  defp put_context_value(payload, _key, value) when value in [nil, ""], do: payload
+
+  defp put_context_value(payload, key, value) when is_binary(value),
+    do: Map.put(payload, key, value)
+
+  defp put_context_value(payload, _key, _value), do: payload
+
+  defp put_context_scopes(payload, scopes) do
+    scopes =
+      scopes
+      |> normalize_scopes()
+      |> Enum.uniq()
+
+    case scopes do
+      [] -> payload
+      scopes -> Map.put(payload, "scopes", scopes)
+    end
+  end
+
+  defp normalize_scopes(scopes) when is_list(scopes), do: Enum.filter(scopes, &is_binary/1)
+
+  defp normalize_scopes(scopes) when is_binary(scopes) do
+    String.split(scopes, [",", " "], trim: true)
+  end
+
+  defp normalize_scopes(_scopes), do: []
+
+  defp context_value(%{} = context, string_key, atom_key) do
+    Map.get(context, string_key) || Map.get(context, atom_key)
+  end
+
+  defp empty_to_nil(map) when map == %{}, do: nil
+  defp empty_to_nil(map), do: map
 
   defp pipeline_command(%{"opcode" => opcode, "body" => body} = command, request_id)
        when is_integer(opcode) and is_map(body) do
