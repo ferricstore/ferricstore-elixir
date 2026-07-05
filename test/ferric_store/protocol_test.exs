@@ -19,6 +19,12 @@ defmodule FerricStore.ProtocolTest do
     assert body_len == byte_size(body)
   end
 
+  test "exposes state metadata policy and search opcodes" do
+    assert Protocol.opcode(:flow_policy_set) == 0x021E
+    assert Protocol.opcode(:flow_policy_get) == 0x021F
+    assert Protocol.opcode(:flow_search) == 0x0230
+  end
+
   test "encodes custom payload request frame" do
     frame =
       Protocol.encode_request(
@@ -147,6 +153,18 @@ defmodule FerricStore.ProtocolTest do
              })
   end
 
+  test "does not compact create many payloads with richer mutation fields" do
+    assert :error =
+             Protocol.compact_flow_create_many_payload(%{
+               "type" => "email",
+               "state" => "queued",
+               "now_ms" => 10,
+               "run_at_ms" => 10,
+               "items" => [["flow-1", ""]],
+               "state_meta" => %{"version" => 1}
+             })
+  end
+
   test "direct compact flow create many ids payload matches generic compact payload" do
     payload = %{
       "type" => "email",
@@ -178,6 +196,22 @@ defmodule FerricStore.ProtocolTest do
                "now_ms" => 10,
                "return" => "OK_ON_SUCCESS",
                "items" => [["flow-1", "p1", "lease-1", 10]]
+             })
+  end
+
+  test "does not compact complete many payloads with shared result or metadata" do
+    assert :error =
+             Protocol.compact_flow_complete_many_payload(%{
+               "now_ms" => 10,
+               "items" => [["flow-1", "p1", "lease-1", 10]],
+               "result" => "done"
+             })
+
+    assert :error =
+             Protocol.compact_flow_complete_many_payload(%{
+               "now_ms" => 10,
+               "items" => [["flow-1", "p1", "lease-1", 10]],
+               "state_meta" => %{"version" => 2}
              })
   end
 

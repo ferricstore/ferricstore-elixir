@@ -2,7 +2,7 @@ defmodule FerricStore.ClientIntegrationTest do
   use ExUnit.Case, async: false
 
   @moduletag :integration
-  @docker_url "ferric://127.0.0.1:6388"
+  @docker_url System.get_env("FERRICSTORE_TEST_URL", "ferric://127.0.0.1:6388")
 
   setup do
     client = FerricStore.connect!(url: @docker_url, client_name: "ferricstore-elixir-test")
@@ -214,6 +214,103 @@ defmodule FerricStore.ClientIntegrationTest do
     )
   end
 
+  test "flow state metadata policy, readback, and search use the Docker server", %{
+    client: client
+  } do
+    suffix = unique("state-meta")
+    type = "#{suffix}-type"
+    partition = "#{suffix}-partition"
+    id = "#{suffix}-flow"
+
+    policy = FerricStore.Flow.policy_set(client, type, indexed_state_meta: "version")
+    assert policy["indexed_state_meta"] == "version"
+
+    assert FerricStore.Flow.policy_get(client, type)["indexed_state_meta"] == "version"
+
+    assert_okish(
+      FerricStore.Flow.create(client, id,
+        type: type,
+        state: "accept",
+        partition_key: partition,
+        state_meta: %{version: 1, owner: "risk"},
+        now_ms: System.system_time(:millisecond)
+      )
+    )
+
+    flow = FerricStore.Flow.get(client, id, partition_key: partition)
+    assert state_meta_value(flow, "accept", "version") == 1
+    assert state_meta_value(flow, "accept", "owner") == "risk"
+
+    assert_eventually(fn ->
+      records =
+        FerricStore.Flow.search(
+          client,
+          type: type,
+          partition_key: partition,
+          state: "accept",
+          state_meta: %{version: 1},
+          consistent_projection: true,
+          count: 10
+        )
+
+      assert Enum.any?(records, &(&1["id"] == id))
+    end)
+  end
+
+  test "topology-aware SDK flow wrapper supports indexed state metadata", %{client: old_client} do
+    {:ok, client} =
+      FerricStore.SDK.start_link(
+        url: @docker_url,
+        client_name: "ferricstore-elixir-sdk-test",
+        endpoint_policy: :any
+      )
+
+    on_exit(fn -> FerricStore.SDK.close(client) end)
+
+    suffix = unique("sdk-state-meta")
+    type = "#{suffix}-type"
+    partition = "#{suffix}-partition"
+    id = "#{suffix}-flow"
+
+    assert {:ok, policy} =
+             FerricStore.SDK.Flow.policy_set(client, %{
+               type: type,
+               indexed_state_meta: "version"
+             })
+
+    assert policy["indexed_state_meta"] == "version"
+
+    assert {:ok, "OK"} =
+             FerricStore.SDK.Flow.create(client, %{
+               id: id,
+               type: type,
+               state: "accept",
+               partition_key: partition,
+               state_meta: %{version: 1, owner: "risk"},
+               now_ms: System.system_time(:millisecond)
+             })
+
+    assert {:ok, flow} =
+             FerricStore.SDK.Flow.get(client, %{id: id, partition_key: partition, full: true})
+
+    assert state_meta_value(flow, "accept", "version") == 1
+
+    assert_eventually(fn ->
+      assert {:ok, records} =
+               FerricStore.SDK.Flow.search(client, %{
+                 type: type,
+                 partition_key: partition,
+                 state_meta: %{accept: %{version: 1}},
+                 consistent_projection: true,
+                 count: 10
+               })
+
+      assert Enum.any?(records, &(&1["id"] == id))
+    end)
+
+    assert FerricStore.ping(old_client) == "PONG"
+  end
+
   test "flow terminal helpers cover retry, fail, and cancel", %{client: client} do
     retry_type = unique("retry-type")
     retry_worker = unique("retry-worker")
@@ -321,6 +418,27 @@ defmodule FerricStore.ClientIntegrationTest do
 
   defp assert_integer_like(value, expected) do
     assert value == expected or value == Integer.to_string(expected)
+  end
+
+  defp state_meta_value(flow, state, key) do
+    flow
+    |> Map.fetch!("state_meta")
+    |> Map.fetch!(state)
+    |> Map.fetch!(key)
+  end
+
+  defp assert_eventually(fun, attempts \\ 40, interval_ms \\ 100)
+
+  defp assert_eventually(fun, attempts, interval_ms) when attempts > 0 do
+    fun.()
+  rescue
+    error in [ExUnit.AssertionError] ->
+      if attempts == 1 do
+        reraise(error, __STACKTRACE__)
+      else
+        Process.sleep(interval_ms)
+        assert_eventually(fun, attempts - 1, interval_ms)
+      end
   end
 
   defp hgetall_field(%{} = fields, field), do: Map.get(fields, field)

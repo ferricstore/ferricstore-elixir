@@ -2,7 +2,7 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public alpha `0.1.0`. APIs may change before `1.0`, but the SDK is
+Status: public alpha `0.2.0`. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
 
@@ -28,7 +28,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.1.0"}
+    {:ferricstore_sdk, "~> 0.2.0"}
   ]
 end
 ```
@@ -47,8 +47,10 @@ For local development, use the Docker image:
 ```bash
 docker run --rm \
   -e FERRICSTORE_PROTECTED_MODE=false \
+  -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
+  -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.5.2
+  ghcr.io/ferricstore/ferricstore:0.7.1
 ```
 
 The SDK examples assume:
@@ -162,9 +164,40 @@ history = FerricStore.Flow.history(client, "order-1")
 History is for debugging and audit. Handlers should use claimed job data and
 requested values, not history replay.
 
+### 9. Index one state metadata key
+
+State metadata is stored per flow state. A flow type may choose one state
+metadata key for server-side indexing:
+
+```elixir
+FerricStore.Flow.policy_set(client, "order", indexed_state_meta: "version")
+
+FerricStore.Flow.create(client, "order-2",
+  type: "order",
+  state: "accept",
+  state_meta: %{version: 1, owner: "risk"}
+)
+
+FerricStore.Flow.search(client,
+  type: "order",
+  state: "accept",
+  state_meta: %{version: 1},
+  count: 10
+)
+```
+
+Use `FerricStore.SDK` when you want topology-aware routing from the client:
+
+```elixir
+{:ok, sdk} = FerricStore.SDK.start_link(url: "ferric://127.0.0.1:6388")
+:ok = FerricStore.SDK.set(sdk, "{tenant:1}:hello", "world")
+{:ok, "world"} = FerricStore.SDK.get(sdk, "{tenant:1}:hello")
+```
+
 ## What you use
 
 - `FerricStore` for native protocol connection and KV/data-structure helpers.
+- `FerricStore.SDK` for topology-aware routing and native command wrappers.
 - `FerricStore.Flow` for exact FerricFlow command-level control.
 - `FerricStore.Queue` for simple durable queue helpers.
 - `FerricStore.Workflow` for explicit state-machine helpers.
@@ -210,8 +243,10 @@ same Docker image used by CI:
 ```bash
 docker run --rm \
   -e FERRICSTORE_PROTECTED_MODE=false \
+  -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
+  -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.5.2
+  ghcr.io/ferricstore/ferricstore:0.7.1
 
 mix test --only integration
 ```

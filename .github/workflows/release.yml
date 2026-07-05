@@ -13,9 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     services:
       ferricstore:
-        image: ghcr.io/ferricstore/ferricstore:0.5.2
+        image: ghcr.io/ferricstore/ferricstore:0.7.1
         env:
           FERRICSTORE_PROTECTED_MODE: "false"
+          FERRICSTORE_NATIVE_ADVERTISE_HOST: "127.0.0.1"
+          FERRICSTORE_NATIVE_ADVERTISE_PORT: "6388"
         ports:
           - 6388:6388
     steps:

@@ -5,7 +5,7 @@ Local comparison against the Python SDK on the same Docker server.
 Environment:
 
 - Client: local macOS
-- Server: Docker `ghcr.io/ferricstore/ferricstore:0.5.2`
+- Server: Docker `ghcr.io/ferricstore/ferricstore:0.7.1`
 - Protocol: native `ferric://`
 - Server URL: `ferric://127.0.0.1:6398`
 - Protected mode disabled for local benchmark only
@@ -15,8 +15,10 @@ Server:
 ```bash
 docker run --rm \
   -e FERRICSTORE_PROTECTED_MODE=false \
+  -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
+  -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6398 \
   -p 6398:6388 \
-  ghcr.io/ferricstore/ferricstore:0.5.2
+  ghcr.io/ferricstore/ferricstore:0.7.1
 ```
 
 ## KV throughput

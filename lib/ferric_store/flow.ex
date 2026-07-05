@@ -99,6 +99,33 @@ defmodule FerricStore.Flow do
   def fail(client, id, opts), do: Client.command(client, "FLOW.FAIL", fail_args(id, opts))
   def cancel(client, id, opts), do: Client.command(client, "FLOW.CANCEL", cancel_args(id, opts))
 
+  def policy_set(client, type, opts \\ []) do
+    Client.native(
+      client,
+      Protocol.opcode(:flow_policy_set),
+      policy_set_payload(type, opts),
+      client_opts(opts)
+    )
+  end
+
+  def policy_get(client, type, opts \\ []) do
+    Client.native(
+      client,
+      Protocol.opcode(:flow_policy_get),
+      policy_get_payload(type, opts),
+      client_opts(opts)
+    )
+  end
+
+  def search(client, opts \\ []) do
+    Client.native(
+      client,
+      Protocol.opcode(:flow_search),
+      search_payload(opts),
+      client_opts(opts)
+    )
+  end
+
   def value_put(client, value, opts \\ []) do
     codec = Keyword.get(opts, :codec, Raw)
 
@@ -161,6 +188,7 @@ defmodule FerricStore.Flow do
     args = append_bool(args, "IDEMPOTENT", Keyword.get(opts, :idempotent))
     args = append(args, "RETENTION_TTL_MS", Keyword.get(opts, :retention_ttl_ms))
     args = append_attributes(args, opts)
+    args = append_state_meta(args, opts)
     append_named_values(args, codec, opts)
   end
 
@@ -187,6 +215,7 @@ defmodule FerricStore.Flow do
     |> put_if_present("priority", Keyword.get(opts, :priority))
     |> put_if_present("retention_ttl_ms", Keyword.get(opts, :retention_ttl_ms))
     |> put_if_present("attributes", stringify_map(Keyword.get(opts, :attributes)))
+    |> put_if_present("state_meta", stringify_nested_map(Keyword.get(opts, :state_meta)))
     |> put_if_present("values", encode_value_map(codec, Keyword.get(opts, :values)))
     |> put_if_present("value_refs", stringify_map(Keyword.get(opts, :value_refs)))
   end
@@ -208,6 +237,7 @@ defmodule FerricStore.Flow do
     |> put_if_present("priority", Keyword.get(opts, :priority))
     |> put_if_present("retention_ttl_ms", Keyword.get(opts, :retention_ttl_ms))
     |> put_if_present("attributes", stringify_map(Keyword.get(opts, :attributes)))
+    |> put_if_present("state_meta", stringify_nested_map(Keyword.get(opts, :state_meta)))
     |> put_if_present("values", encode_value_map(codec, Keyword.get(opts, :values)))
     |> put_if_present("value_refs", stringify_map(Keyword.get(opts, :value_refs)))
   end
@@ -313,6 +343,7 @@ defmodule FerricStore.Flow do
     args = append(args, "RUN_AT", Keyword.get(opts, :run_at_ms, now))
     args = append(args, "PRIORITY", Keyword.get(opts, :priority))
     args = append_attributes(args, opts)
+    args = append_state_meta(args, opts)
     append_named_values(args, codec, opts)
   end
 
@@ -334,6 +365,7 @@ defmodule FerricStore.Flow do
     |> put_if_present("ttl_ms", Keyword.get(opts, :ttl_ms))
     |> put_if_present("attributes_merge", stringify_map(Keyword.get(opts, :attributes_merge)))
     |> put_if_present("attributes_delete", Keyword.get(opts, :attributes_delete))
+    |> put_if_present("state_meta", stringify_nested_map(Keyword.get(opts, :state_meta)))
     |> put_if_present("values", encode_value_map(codec, Keyword.get(opts, :values)))
     |> put_if_present("value_refs", stringify_map(Keyword.get(opts, :value_refs)))
     |> put_if_present("drop_values", Keyword.get(opts, :drop_values))
@@ -361,7 +393,28 @@ defmodule FerricStore.Flow do
     args = append(args, "REASON", Keyword.get(opts, :reason) || Keyword.get(opts, :error))
     args = append(args, "TTL", Keyword.get(opts, :ttl_ms))
     args = append_attributes(args, opts)
+    args = append_state_meta(args, opts)
     append_named_values(args, Keyword.get(opts, :codec, Raw), opts)
+  end
+
+  def policy_set_payload(type, opts) do
+    %{"type" => type}
+    |> put_if_keyword_present("indexed_state_meta", opts, :indexed_state_meta)
+  end
+
+  def policy_get_payload(type, _opts \\ []), do: %{"type" => type}
+
+  def search_payload(opts) do
+    %{"type" => Keyword.fetch!(opts, :type)}
+    |> put_if_present("state", Keyword.get(opts, :state))
+    |> put_if_present("partition_key", Keyword.get(opts, :partition_key))
+    |> put_if_present("count", Keyword.get(opts, :count))
+    |> put_if_present("from_ms", Keyword.get(opts, :from_ms))
+    |> put_if_present("to_ms", Keyword.get(opts, :to_ms))
+    |> put_if_present("rev", Keyword.get(opts, :rev))
+    |> put_if_present("consistent_projection", Keyword.get(opts, :consistent_projection))
+    |> put_if_present("attributes", stringify_map(Keyword.get(opts, :attributes)))
+    |> put_if_present("state_meta", normalize_search_state_meta(opts))
   end
 
   defp terminal_args(id, opts, value_name) do
@@ -389,6 +442,7 @@ defmodule FerricStore.Flow do
     args = append_encoded(args, "PAYLOAD", codec, Keyword.get(opts, :payload))
     args = append(args, "TTL", Keyword.get(opts, :ttl_ms))
     args = append_attributes(args, opts)
+    args = append_state_meta(args, opts)
     append_named_values(args, codec, opts)
   end
 
@@ -411,6 +465,7 @@ defmodule FerricStore.Flow do
     |> put_if_present("attributes", stringify_map(Keyword.get(opts, :attributes)))
     |> put_if_present("attributes_merge", stringify_map(Keyword.get(opts, :attributes_merge)))
     |> put_if_present("attributes_delete", Keyword.get(opts, :attributes_delete))
+    |> put_if_present("state_meta", stringify_nested_map(Keyword.get(opts, :state_meta)))
     |> put_if_present("values", encode_value_map(codec, Keyword.get(opts, :values)))
     |> put_if_present("value_refs", stringify_map(Keyword.get(opts, :value_refs)))
     |> put_if_present("drop_values", Keyword.get(opts, :drop_values))
@@ -433,6 +488,14 @@ defmodule FerricStore.Flow do
 
   defp put_if_present(map, _key, nil), do: map
   defp put_if_present(map, key, value), do: Map.put(map, key, value)
+
+  defp put_if_keyword_present(map, key, opts, opt_key) do
+    if Keyword.has_key?(opts, opt_key) do
+      Map.put(map, key, Keyword.get(opts, opt_key))
+    else
+      map
+    end
+  end
 
   defp compact_or_typed(payload, compact_fun) do
     case compact_fun.(payload) do
@@ -474,6 +537,42 @@ defmodule FerricStore.Flow do
 
   defp stringify_map(map) when is_map(map),
     do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
+
+  defp stringify_nested_map(nil), do: nil
+
+  defp stringify_nested_map(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), stringify_nested_map(value)} end)
+  end
+
+  defp stringify_nested_map(value) when is_list(value),
+    do: Enum.map(value, &stringify_nested_map/1)
+
+  defp stringify_nested_map(value), do: value
+
+  defp normalize_search_state_meta(opts) do
+    case {Keyword.get(opts, :state), Keyword.get(opts, :state_meta)} do
+      {_state, nil} ->
+        nil
+
+      {state, state_meta} when is_binary(state) and is_map(state_meta) ->
+        normalize_state_scoped_meta(state, state_meta)
+
+      {_state, state_meta} ->
+        stringify_nested_map(state_meta)
+    end
+  end
+
+  defp normalize_state_scoped_meta(state, state_meta) do
+    if state_scoped_meta?(state_meta) do
+      stringify_nested_map(state_meta)
+    else
+      %{state => stringify_nested_map(state_meta)}
+    end
+  end
+
+  defp state_scoped_meta?(state_meta) do
+    Enum.all?(state_meta, fn {_key, value} -> is_map(value) end)
+  end
 
   defp encode_value_map(_codec, nil), do: nil
 
@@ -537,6 +636,12 @@ defmodule FerricStore.Flow do
     args = append_attribute_filters(args, Keyword.get(opts, :attributes), "ATTRIBUTE")
     args = append_attribute_filters(args, Keyword.get(opts, :attributes_merge), "ATTRIBUTE_MERGE")
     append_many(args, "ATTRIBUTE_DELETE", Keyword.get(opts, :attributes_delete))
+  end
+
+  defp append_state_meta(args, opts) do
+    Enum.reduce(Keyword.get(opts, :state_meta, %{}) || %{}, args, fn {name, value}, acc ->
+      acc ++ ["STATE_META", to_string(name), value]
+    end)
   end
 
   defp append_attribute_filters(args, attributes, prefix \\ "ATTRIBUTE")

@@ -49,6 +49,7 @@ defmodule FerricStore.FlowTest do
         type: "email",
         payload: "hello",
         attributes: %{tenant: "acme"},
+        state_meta: %{version: 1, owner: "risk"},
         values: %{prompt: "hi"},
         value_refs: %{large: "ref-1"},
         now_ms: 10
@@ -62,9 +63,29 @@ defmodule FerricStore.FlowTest do
              "run_at_ms" => 10,
              "payload" => "hello",
              "attributes" => %{"tenant" => "acme"},
+             "state_meta" => %{"version" => 1, "owner" => "risk"},
              "values" => %{"prompt" => "hi"},
              "value_refs" => %{"large" => "ref-1"}
            }
+  end
+
+  test "builds create args with state metadata" do
+    args =
+      Flow.create_args("flow-1",
+        type: "email",
+        state: "accept",
+        state_meta: %{version: 1, owner: "risk"},
+        now_ms: 10
+      )
+
+    assert Enum.slice(args, -6, 6) == [
+             "STATE_META",
+             "owner",
+             "risk",
+             "STATE_META",
+             "version",
+             1
+           ]
   end
 
   test "builds direct create many payload" do
@@ -135,6 +156,7 @@ defmodule FerricStore.FlowTest do
         lease_token: "token",
         fencing_token: 3,
         payload: "next",
+        state_meta: %{version: 2},
         now_ms: 100
       )
 
@@ -151,7 +173,10 @@ defmodule FerricStore.FlowTest do
              "PAYLOAD",
              "next",
              "RUN_AT",
-             100
+             100,
+             "STATE_META",
+             "version",
+             2
            ]
   end
 
@@ -160,13 +185,43 @@ defmodule FerricStore.FlowTest do
              lease_token: "token",
              fencing_token: 5,
              result: "ok",
+             state_meta: %{version: 3},
              now_ms: 10
            ) == %{
              "id" => "flow-1",
              "lease_token" => "token",
              "fencing_token" => 5,
              "result" => "ok",
-             "now_ms" => 10
+             "now_ms" => 10,
+             "state_meta" => %{"version" => 3}
+           }
+  end
+
+  test "builds flow policy and search payloads for indexed state metadata" do
+    assert Flow.policy_set_payload("review", indexed_state_meta: "version") == %{
+             "type" => "review",
+             "indexed_state_meta" => "version"
+           }
+
+    assert Flow.policy_set_payload("review", indexed_state_meta: nil) == %{
+             "type" => "review",
+             "indexed_state_meta" => nil
+           }
+
+    assert Flow.search_payload(
+             type: "review",
+             state: "accept",
+             partition_key: "tenant-1",
+             state_meta: %{version: 1},
+             consistent_projection: true,
+             count: 10
+           ) == %{
+             "type" => "review",
+             "state" => "accept",
+             "partition_key" => "tenant-1",
+             "state_meta" => %{"accept" => %{"version" => 1}},
+             "consistent_projection" => true,
+             "count" => 10
            }
   end
 

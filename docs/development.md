@@ -13,7 +13,12 @@ mix hex.build
 Docker-backed integration suite:
 
 ```bash
-docker run --rm -p 6388:6388 ghcr.io/ferricstore/ferricstore:0.5.2
+docker run --rm \
+  -e FERRICSTORE_PROTECTED_MODE=false \
+  -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
+  -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
+  -p 6388:6388 \
+  ghcr.io/ferricstore/ferricstore:0.7.1
 mix test --only integration
 ```
 

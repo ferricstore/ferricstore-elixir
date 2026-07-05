@@ -34,6 +34,27 @@ defmodule FerricStore.Protocol do
   @op_flow_value_mget 0x020C
   @op_flow_create_many 0x020F
   @op_flow_complete_many 0x0210
+  @op_flow_policy_set 0x021E
+  @op_flow_policy_get 0x021F
+  @op_flow_search 0x0230
+
+  @compact_create_many_keys MapSet.new([
+                              "items",
+                              "type",
+                              "state",
+                              "now_ms",
+                              "run_at_ms",
+                              "partition_key",
+                              "independent",
+                              "return"
+                            ])
+  @compact_complete_many_keys MapSet.new([
+                                "items",
+                                "now_ms",
+                                "partition_key",
+                                "independent",
+                                "return"
+                              ])
 
   @type frame :: %{
           flags: non_neg_integer(),
@@ -68,6 +89,9 @@ defmodule FerricStore.Protocol do
   def opcode(:flow_value_mget), do: @op_flow_value_mget
   def opcode(:flow_create_many), do: @op_flow_create_many
   def opcode(:flow_complete_many), do: @op_flow_complete_many
+  def opcode(:flow_policy_set), do: @op_flow_policy_set
+  def opcode(:flow_policy_get), do: @op_flow_policy_get
+  def opcode(:flow_search), do: @op_flow_search
 
   def custom_payload(payload) when is_binary(payload), do: {:custom_payload, payload}
 
@@ -91,7 +115,8 @@ defmodule FerricStore.Protocol do
       )
       when is_binary(type) and is_binary(state) and is_integer(now_ms) and is_integer(run_at_ms) and
              is_list(items) do
-    with {:ok, return_mode} <- compact_create_many_return_mode(Map.get(payload, "return")),
+    with :ok <- compact_payload_keys(payload, @compact_create_many_keys),
+         {:ok, return_mode} <- compact_create_many_return_mode(Map.get(payload, "return")),
          {:ok, partition_key} <- compact_optional_binary_value(Map.get(payload, "partition_key")),
          {:ok, item_bytes, tag} <- compact_flow_create_many_items(items, partition_key) do
       prefix = [
@@ -152,7 +177,8 @@ defmodule FerricStore.Protocol do
 
   def compact_flow_complete_many_payload(%{"now_ms" => now_ms, "items" => items} = payload)
       when is_integer(now_ms) and is_list(items) do
-    with {:ok, partition_key} <- compact_optional_binary_value(Map.get(payload, "partition_key")),
+    with :ok <- compact_payload_keys(payload, @compact_complete_many_keys),
+         {:ok, partition_key} <- compact_optional_binary_value(Map.get(payload, "partition_key")),
          {:ok, item_bytes} <- compact_flow_claimed_many_items(items) do
       tag =
         case Map.get(payload, "return") do
@@ -180,6 +206,14 @@ defmodule FerricStore.Protocol do
   end
 
   def compact_flow_complete_many_payload(_payload), do: :error
+
+  defp compact_payload_keys(payload, allowed_keys) do
+    if payload |> Map.keys() |> Enum.all?(&MapSet.member?(allowed_keys, &1)) do
+      :ok
+    else
+      :error
+    end
+  end
 
   def decode_response_header(
         <<@magic::binary, @response_version::8, flags::8, lane_id::32, opcode::16, request_id::64,

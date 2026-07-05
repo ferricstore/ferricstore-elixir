@@ -16,13 +16,19 @@ the published FerricStore Docker image.
 ```bash
 docker run --rm \
   -e FERRICSTORE_PROTECTED_MODE=false \
+  -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
+  -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.5.2
+  ghcr.io/ferricstore/ferricstore:0.7.1
 
 mix test --only integration
 ```
 
-Do not hide integration behind environment variables. CI runs the same command.
+Use `FERRICSTORE_TEST_URL` only when the local port is different:
+
+```bash
+FERRICSTORE_TEST_URL=ferric://127.0.0.1:6389 mix test --only integration
+```
 
 ## Full local gate
 
