@@ -45,11 +45,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Check Hex credentials
+        id: hex_creds
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: |
+          if [ -n "$HEX_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "HEX_API_KEY is not configured; skipping Hex publish."
+          fi
       - uses: erlef/setup-beam@v1
+        if: steps.hex_creds.outputs.available == 'true'
         with:
           otp-version: "28"
           elixir-version: "1.19"
       - run: mix deps.get
+        if: steps.hex_creds.outputs.available == 'true'
       - run: mix hex.publish --yes
+        if: steps.hex_creds.outputs.available == 'true'
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
