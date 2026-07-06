@@ -1,6 +1,10 @@
 defmodule FerricStore.ClientIntegrationTest do
   use ExUnit.Case, async: false
 
+  alias FerricStore.SDK
+  alias FerricStore.SDK.{Admin, Flow}
+  alias FerricStore.SDK.Native.Opcodes
+
   @moduletag :integration
   @docker_url System.get_env("FERRICSTORE_TEST_URL", "ferric://127.0.0.1:6388")
 
@@ -10,6 +14,240 @@ defmodule FerricStore.ClientIntegrationTest do
     on_exit(fn -> FerricStore.close(client) end)
 
     {:ok, client: client}
+  end
+
+  test "topology-aware SDK control requests cover the Docker native session surface" do
+    client = start_sdk_client("control")
+    key = unique("sdk-control")
+
+    assert {:ok, "PONG"} = SDK.ping(client)
+    assert {:ok, hello} = SDK.request(client, :hello, %{})
+    assert hello["protocol"] == "ferricstore-native"
+
+    assert {:error, auth_error} =
+             SDK.request(client, :auth, %{"username" => "default", "password" => ""})
+
+    assert_error_message(auth_error, "no password")
+
+    assert {:ok, startup} =
+             SDK.request(client, :startup, %{"client_name" => unique("sdk-startup")})
+
+    assert startup["protocol"] == "ferricstore-native"
+
+    assert {:ok, "OK"} =
+             SDK.request(client, :client_set_name, %{"name" => "ferricstore-sdk-itest"})
+
+    assert {:ok, info} = SDK.request(client, :client_info, %{})
+    assert info["client_name"] == "ferricstore-sdk-itest"
+
+    assert {:ok, route} = SDK.request(client, :route, %{"key" => key})
+    assert route["key"] == key
+
+    assert {:ok, [batch_route]} = SDK.request(client, :route_batch, %{"keys" => [key]})
+    assert batch_route["key"] == key
+
+    assert :ok = SDK.refresh_topology(client)
+    assert {:ok, local_route} = SDK.route(client, key)
+    assert is_integer(local_route.slot)
+    assert %FerricStore.SDK.Native.Topology{} = SDK.topology(client)
+
+    assert {:ok, backpressure} = SDK.request(client, :backpressure, %{})
+    assert is_boolean(backpressure["reject_writes"])
+
+    assert {:ok, window} = SDK.request(client, :window_update, %{})
+    assert is_boolean(window["accepted"])
+
+    assert {:ok, []} = SDK.request(client, :pipeline, %{"commands" => []})
+
+    assert {:ok, subscribed} = SDK.request(client, :subscribe_events, %{"events" => []})
+    assert is_list(subscribed["supported"])
+
+    assert {:ok, unsubscribed} = SDK.request(client, :unsubscribe_events, %{"events" => []})
+    assert is_list(unsubscribed["supported"])
+
+    assert {:ok, options} = SDK.request(client, :options, %{})
+    assert_sdk_opcode_table_matches(options)
+  end
+
+  test "topology-aware SDK KV helpers cover the Docker key command surface" do
+    client = start_sdk_client("kv")
+    tag = unique("sdk-kv")
+    key = same_slot_key(tag, "one")
+    other_key = same_slot_key(tag, "two")
+
+    assert :ok = SDK.set(client, key, "value")
+    assert {:ok, "value"} = SDK.get(client, key)
+
+    assert :ok = SDK.mset(client, %{key => "value-2", other_key => "other"})
+
+    assert {:ok, ["value-2", "other", nil]} =
+             SDK.mget(client, [key, other_key, same_slot_key(tag, "missing")])
+
+    assert {:ok, true} = SDK.cas(client, key, "value-2", "value-3")
+    assert {:ok, "value-3"} = SDK.get(client, key)
+
+    owner = unique("owner")
+    lock_key = same_slot_key(tag, "lock")
+
+    assert {:ok, _locked} = SDK.lock(client, lock_key, owner, 5_000)
+    assert {:ok, _extended} = SDK.extend(client, lock_key, owner, 5_000)
+    assert {:ok, _unlocked} = SDK.unlock(client, lock_key, owner)
+
+    assert {:ok, ratelimit} = SDK.ratelimit_add(client, same_slot_key(tag, "rate"), 1_000, 10, 2)
+    assert is_list(ratelimit) or is_map(ratelimit)
+
+    compute_key = same_slot_key(tag, "compute")
+    assert {:ok, ["compute", _token]} = SDK.fetch_or_compute(client, compute_key, 60_000)
+    assert :ok = SDK.fetch_or_compute_result(client, compute_key, "computed", 60_000)
+    assert {:ok, ["hit", "computed"]} = SDK.fetch_or_compute(client, compute_key, 60_000)
+
+    failed_compute_key = same_slot_key(tag, "compute-error")
+    assert {:ok, ["compute", _token]} = SDK.fetch_or_compute(client, failed_compute_key, 60_000)
+    assert :ok = SDK.fetch_or_compute_error(client, failed_compute_key, "failed")
+
+    hash_key = same_slot_key(tag, "hash")
+
+    assert {:ok, _} =
+             SDK.hset(client, hash_key, %{"field-1" => "value-1", "field-2" => "value-2"})
+
+    assert {:ok, "value-1"} = SDK.hget(client, hash_key, "field-1")
+
+    assert {:ok, ["value-1", "value-2", nil]} =
+             SDK.hmget(client, hash_key, ["field-1", "field-2", "missing"])
+
+    assert {:ok, fields} = SDK.hgetall(client, hash_key)
+    assert hgetall_field(fields, "field-2") == "value-2"
+
+    list_key = same_slot_key(tag, "list")
+    assert {:ok, _} = SDK.lpush(client, list_key, ["a", "b"])
+    assert {:ok, _} = SDK.rpush(client, list_key, "c")
+    assert {:ok, ["b", "a", "c"]} = SDK.lrange(client, list_key, 0, -1)
+    assert {:ok, "b"} = SDK.lpop(client, list_key)
+    assert {:ok, "c"} = SDK.rpop(client, list_key)
+
+    set_key = same_slot_key(tag, "set")
+    assert {:ok, _} = SDK.sadd(client, set_key, ["a", "b"])
+    assert {:ok, true} = SDK.sismember(client, set_key, "a")
+    assert {:ok, members} = SDK.smembers(client, set_key)
+    assert Enum.sort(members) == ["a", "b"]
+    assert {:ok, _} = SDK.srem(client, set_key, "a")
+    assert {:ok, false} = SDK.sismember(client, set_key, "a")
+
+    zset_key = same_slot_key(tag, "zset")
+    assert {:ok, _} = SDK.zadd(client, zset_key, [{1, "a"}, {2, "b"}])
+    assert {:ok, ["a", "b"]} = SDK.zrange(client, zset_key, 0, -1)
+    assert {:ok, score} = SDK.zscore(client, zset_key, "a")
+    assert score in [1, 1.0, "1", "1.0"]
+    assert {:ok, _} = SDK.zrem(client, zset_key, "a")
+    assert {:ok, ["b"]} = SDK.zrange(client, zset_key, 0, -1)
+
+    assert {:ok, 2} = SDK.del(client, [key, other_key])
+  end
+
+  test "topology-aware SDK admin helpers reach Docker and classify unsafe handlers" do
+    client = start_sdk_client("admin")
+    key = same_slot_key(unique("sdk-admin"), "key")
+    assert :ok = SDK.set(client, key, "value")
+
+    classified =
+      admin_safe_invocation_cases(key)
+      |> Keyword.keys()
+      |> MapSet.new()
+      |> MapSet.union(MapSet.new(admin_unsafe_invocation_functions()))
+
+    assert classified ==
+             MapSet.new(Map.keys(Admin.opcodes()))
+
+    for {function, payload} <- admin_safe_invocation_cases(key) do
+      assert_docker_command_response(apply(Admin, function, [client, payload]))
+    end
+
+    assert {:ok, health} = Admin.cluster_health(client)
+    assert is_binary(health)
+
+    assert {:ok, slot} = Admin.cluster_keyslot(client, %{args: [key]})
+    assert is_integer(slot)
+
+    assert {:ok, key_info} = Admin.ferricstore_key_info(client, %{key: key})
+    assert is_list(key_info) or is_map(key_info)
+
+    assert {:ok, metrics} = Admin.ferricstore_metrics(client)
+    assert is_binary(metrics)
+  end
+
+  test "topology-aware SDK management helpers cover the Docker control-plane contract" do
+    client = start_sdk_client("management")
+    username = "sdk_itest_#{System.unique_integer([:positive])}"
+    prefix = unique("mgmt")
+
+    assert {:ok, capabilities} = SDK.capabilities(client)
+    assert capabilities["sdk"] == true
+    assert capabilities["telemetry"] == true
+
+    assert {:ok, users} = SDK.acl_list_users(client)
+    assert is_list(users)
+
+    assert {:ok, default_user} = SDK.acl_get_user(client, "default")
+    assert is_list(default_user) or is_map(default_user)
+
+    case SDK.acl_set_user(client, username, ["on"]) do
+      {:ok, _value} ->
+        assert_docker_command_response(SDK.acl_get_user(client, username))
+        assert_docker_command_response(SDK.acl_del_user(client, username))
+        assert_docker_command_response(SDK.acl_save(client))
+
+      {:error, reason} ->
+        assert_error_message(reason, "unsupported")
+    end
+
+    namespace_capable? = capabilities["namespace_management"] == true
+    assert_management_capability_response(SDK.list_namespaces(client), namespace_capable?)
+    assert_management_capability_response(SDK.get_namespace(client, prefix), namespace_capable?)
+
+    assert_management_capability_response(
+      SDK.ensure_namespace(client, prefix, durability: :raft),
+      namespace_capable?
+    )
+
+    assert_management_capability_response(
+      SDK.delete_namespace(client, prefix),
+      namespace_capable?
+    )
+
+    quota_capable? = capabilities["quota_management"] == true
+    assert_management_capability_response(SDK.get_quota(client, prefix), quota_capable?)
+    assert_management_capability_response(SDK.set_quota(client, prefix, keys: 10), quota_capable?)
+    assert_management_capability_response(SDK.quota_usage(client, prefix), quota_capable?)
+
+    assert {:ok, cluster_info} = SDK.cluster_info(client)
+    assert is_map(cluster_info)
+
+    assert {:ok, namespace_usage} = SDK.namespace_usage(client, prefix)
+    assert namespace_usage["prefix"] == prefix
+
+    assert {:ok, flow_query} = SDK.flow_query(client, tenant: "acme")
+    assert is_list(flow_query)
+
+    assert {:ok, flow_history} = SDK.flow_history(client, unique("flow-history"))
+    assert is_list(flow_history)
+  end
+
+  test "topology-aware SDK Flow wrappers reach Docker and classify unsafe handlers" do
+    client = start_sdk_client("flow-all")
+    base = unique("sdk-flow-all")
+
+    classified =
+      flow_safe_invocation_cases(base)
+      |> Keyword.keys()
+      |> MapSet.new()
+      |> MapSet.union(MapSet.new(flow_unsafe_invocation_functions()))
+
+    assert classified ==
+             MapSet.new(Map.keys(Flow.opcodes()))
+
+    for {function, payload} <- flow_safe_invocation_cases(base) do
+      assert_docker_command_response(apply(Flow, function, [client, payload]))
+    end
   end
 
   test "KV helpers cover set, get, mset, mget, and delete", %{client: client} do
@@ -384,6 +622,248 @@ defmodule FerricStore.ClientIntegrationTest do
       )
     )
   end
+
+  defp start_sdk_client(name) do
+    {:ok, client} =
+      SDK.start_link(
+        url: @docker_url,
+        client_name: "ferricstore-elixir-sdk-#{name}",
+        endpoint_policy: :any
+      )
+
+    on_exit(fn -> SDK.close(client) end)
+    client
+  end
+
+  defp same_slot_key(tag, suffix), do: "elixir-sdk:{#{tag}}:#{suffix}"
+
+  defp admin_safe_invocation_cases(key) do
+    [
+      cluster_health: %{},
+      cluster_stats: %{},
+      cluster_keyslot: %{args: [key]},
+      cluster_slots: %{},
+      cluster_status: %{},
+      cluster_role: %{},
+      ferricstore_key_info: %{key: key},
+      ferricstore_config: %{args: ["GET", "native-port"]},
+      ferricstore_hotness: %{args: [key]},
+      ferricstore_metrics: %{}
+    ]
+  end
+
+  defp admin_unsafe_invocation_functions do
+    [
+      :cluster_join,
+      :cluster_leave,
+      :cluster_failover,
+      :cluster_promote,
+      :cluster_demote,
+      :ferricstore_blobgc
+    ]
+  end
+
+  defp flow_safe_invocation_cases(base) do
+    type = "#{base}-type"
+    id = "#{base}-id"
+    parent_id = "#{base}-parent"
+    root_id = "#{base}-root"
+    correlation_id = "#{base}-correlation"
+    scope = "#{base}-scope"
+    now_ms = System.system_time(:millisecond)
+
+    [
+      create: %{
+        id: id,
+        type: type,
+        state: "queued",
+        partition_key: base,
+        parent_id: parent_id,
+        root_id: root_id,
+        correlation_id: correlation_id,
+        attributes: %{tenant: "acme"},
+        now_ms: now_ms
+      },
+      get: %{id: id, partition_key: base},
+      claim_due: %{type: type, state: "queued", worker: "#{base}-worker", limit: 1},
+      complete: %{
+        id: "#{base}-missing",
+        partition_key: base,
+        lease_token: "missing",
+        fencing_token: 0
+      },
+      transition: %{
+        id: "#{base}-missing",
+        partition_key: base,
+        from_state: "running",
+        to_state: "done",
+        lease_token: "missing",
+        fencing_token: 0
+      },
+      retry: %{
+        id: "#{base}-missing",
+        partition_key: base,
+        lease_token: "missing",
+        fencing_token: 0,
+        error: "retry"
+      },
+      fail: %{
+        id: "#{base}-missing",
+        partition_key: base,
+        lease_token: "missing",
+        fencing_token: 0,
+        error: "fail"
+      },
+      cancel: %{
+        id: "#{base}-missing",
+        partition_key: base,
+        fencing_token: 0,
+        reason: "cancel"
+      },
+      extend_lease: %{
+        id: "#{base}-missing",
+        partition_key: base,
+        lease_token: "missing",
+        fencing_token: 0,
+        ttl_ms: 1_000
+      },
+      history: %{id: id},
+      value_put: %{value: "value"},
+      value_mget: %{refs: []},
+      signal: %{id: id, signal: "noop", payload: %{}},
+      list: %{type: type, state: "queued", count: 10},
+      create_many: %{
+        type: "#{type}-many",
+        independent: true,
+        return: "OK_ON_SUCCESS",
+        items: [["#{base}-many-1", ""], ["#{base}-many-2", ""]]
+      },
+      complete_many: %{items: []},
+      transition_many: %{from_state: "running", to_state: "done", items: []},
+      retry_many: %{items: []},
+      fail_many: %{items: []},
+      cancel_many: %{items: []},
+      reclaim: %{type: type, state: "running", worker: "#{base}-reclaimer", limit: 1},
+      rewind: %{id: "#{base}-missing", partition_key: base, to_state: "queued"},
+      terminals: %{type: type},
+      failures: %{type: type},
+      by_parent: %{parent_id: parent_id},
+      by_root: %{root_id: root_id},
+      by_correlation: %{correlation_id: correlation_id},
+      info: %{type: type},
+      stuck: %{type: type, now_ms: now_ms},
+      policy_set: %{type: type, indexed_state_meta: "version"},
+      policy_get: %{type: type},
+      stats: %{type: type},
+      attributes: %{type: type},
+      attribute_values: %{type: type, attribute: "tenant"},
+      search: %{type: type, attributes: %{tenant: "acme"}, count: 10, terminal_only: true},
+      governance_ledger: %{id: id},
+      approval_get: %{id: "#{base}-approval"},
+      circuit_get: %{scope: scope},
+      budget_get: %{scope: scope},
+      limit_get: %{scope: scope},
+      approval_list: %{flow_id: id},
+      governance_overview: %{scope: scope},
+      budget_list: %{scope: scope},
+      limit_list: %{scope: scope}
+    ]
+  end
+
+  defp flow_unsafe_invocation_functions do
+    [
+      :spawn_children,
+      :retention_cleanup,
+      :step_continue,
+      :start_and_claim,
+      :run_steps_many,
+      :schedule_create,
+      :schedule_get,
+      :schedule_delete,
+      :schedule_fire_due,
+      :schedule_list,
+      :schedule_fire,
+      :schedule_pause,
+      :schedule_resume,
+      :effect_reserve,
+      :effect_confirm,
+      :effect_fail,
+      :effect_compensate,
+      :effect_get,
+      :approval_request,
+      :approval_approve,
+      :approval_reject,
+      :circuit_open,
+      :circuit_close,
+      :budget_reserve,
+      :budget_commit,
+      :budget_release,
+      :limit_lease,
+      :limit_spend,
+      :limit_release
+    ]
+  end
+
+  defp assert_sdk_opcode_table_matches(options) do
+    advertised =
+      Map.new(options["opcodes"], fn %{"name" => name, "opcode" => opcode} ->
+        {name, opcode}
+      end)
+
+    known =
+      Opcodes.all()
+      |> Enum.map(fn {_atom, opcode} -> {Opcodes.name(opcode), opcode} end)
+      |> Map.new()
+
+    advertised_names = advertised |> Map.keys() |> MapSet.new()
+    known_names = known |> Map.keys() |> MapSet.new()
+
+    assert MapSet.difference(advertised_names, known_names) == MapSet.new()
+    assert MapSet.difference(known_names, advertised_names) == MapSet.new()
+
+    mismatched =
+      advertised
+      |> Enum.reject(fn {name, opcode} -> known[name] == opcode end)
+      |> Enum.map(fn {name, opcode} -> {name, opcode, known[name]} end)
+
+    assert mismatched == []
+    assert Opcodes.fetch!("GOAWAY") == 0x000A
+    assert Opcodes.fetch!("EVENT") == 0x0010
+  end
+
+  defp assert_management_capability_response({:ok, _value}, _capable?), do: :ok
+
+  defp assert_management_capability_response({:error, reason}, false) do
+    assert_error_message(reason, "unsupported")
+  end
+
+  defp assert_management_capability_response({:error, reason}, true) do
+    flunk("expected management command to be supported, got #{inspect(reason)}")
+  end
+
+  defp assert_docker_command_response({:ok, _value}), do: :ok
+
+  defp assert_docker_command_response({:error, reason}) do
+    message = error_reason_message(reason)
+    downcased = String.downcase(message)
+
+    refute String.contains?(downcased, "unknown command")
+    refute String.contains?(downcased, "unknown opcode")
+    assert byte_size(message) > 0
+  end
+
+  defp assert_docker_command_response(other) do
+    flunk("expected Docker SDK command response, got #{inspect(other)}")
+  end
+
+  defp assert_error_message(reason, expected) do
+    assert reason |> error_reason_message() |> String.downcase() =~ String.downcase(expected)
+  end
+
+  defp error_reason_message({_, %{"message" => message}}) when is_binary(message), do: message
+  defp error_reason_message(%{"message" => message}) when is_binary(message), do: message
+  defp error_reason_message(%{message: message}) when is_binary(message), do: message
+  defp error_reason_message(reason), do: inspect(reason)
 
   defp extract_ref(%{"ref" => ref}), do: ref
   defp extract_ref(%{ref: ref}), do: ref

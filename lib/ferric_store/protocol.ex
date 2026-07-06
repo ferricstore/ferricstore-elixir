@@ -7,6 +7,8 @@ defmodule FerricStore.Protocol do
   argument lists and let this module handle the wire format.
   """
 
+  alias FerricStore.SDK.Native.Opcodes
+
   @magic "FSNP"
   @request_version 0x01
   @response_version 0x81
@@ -92,6 +94,7 @@ defmodule FerricStore.Protocol do
   def opcode(:flow_policy_set), do: @op_flow_policy_set
   def opcode(:flow_policy_get), do: @op_flow_policy_get
   def opcode(:flow_search), do: @op_flow_search
+  def opcode(name) when is_atom(name), do: Opcodes.fetch!(name)
 
   def custom_payload(payload) when is_binary(payload), do: {:custom_payload, payload}
 

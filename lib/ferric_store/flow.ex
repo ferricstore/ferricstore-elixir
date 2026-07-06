@@ -412,6 +412,7 @@ defmodule FerricStore.Flow do
     |> put_if_present("from_ms", Keyword.get(opts, :from_ms))
     |> put_if_present("to_ms", Keyword.get(opts, :to_ms))
     |> put_if_present("rev", Keyword.get(opts, :rev))
+    |> put_if_present("terminal_only", Keyword.get(opts, :terminal_only))
     |> put_if_present("consistent_projection", Keyword.get(opts, :consistent_projection))
     |> put_if_present("attributes", stringify_map(Keyword.get(opts, :attributes)))
     |> put_if_present("state_meta", normalize_search_state_meta(opts))

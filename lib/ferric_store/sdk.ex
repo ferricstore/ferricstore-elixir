@@ -4,6 +4,7 @@ defmodule FerricStore.SDK do
   """
 
   alias FerricStore.SDK.KV
+  alias FerricStore.SDK.Management
   alias FerricStore.SDK.Native.Client
 
   def start_link(opts) do
@@ -65,4 +66,22 @@ defmodule FerricStore.SDK do
   defdelegate zrem(client, key, members, opts \\ []), to: KV
   defdelegate zrange(client, key, start, stop, opts \\ []), to: KV
   defdelegate zscore(client, key, member, opts \\ []), to: KV
+
+  defdelegate capabilities(client, opts \\ []), to: Management
+  defdelegate acl_set_user(client, username, rules, opts \\ []), to: Management, as: :set_user
+  defdelegate acl_del_user(client, username, opts \\ []), to: Management, as: :del_user
+  defdelegate acl_get_user(client, username, opts \\ []), to: Management, as: :get_user
+  defdelegate acl_list_users(client, opts \\ []), to: Management, as: :list_users
+  defdelegate acl_save(client, opts \\ []), to: Management, as: :save_acl
+  defdelegate ensure_namespace(client, prefix, attrs \\ %{}, opts \\ []), to: Management
+  defdelegate get_namespace(client, prefix, opts \\ []), to: Management
+  defdelegate list_namespaces(client, opts \\ []), to: Management
+  defdelegate delete_namespace(client, prefix, opts \\ []), to: Management
+  defdelegate set_quota(client, namespace, quota_spec, opts \\ []), to: Management
+  defdelegate get_quota(client, namespace, opts \\ []), to: Management
+  defdelegate quota_usage(client, namespace, opts \\ []), to: Management
+  defdelegate cluster_info(client, opts \\ []), to: Management
+  defdelegate namespace_usage(client, prefix, opts \\ []), to: Management
+  defdelegate flow_query(client, attrs \\ %{}, opts \\ []), to: Management
+  defdelegate flow_history(client, id, attrs \\ %{}, opts \\ []), to: Management
 end

@@ -2,7 +2,7 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public alpha `0.2.0`. APIs may change before `1.0`, but the SDK is
+Status: public alpha `0.2.1`. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
 
@@ -28,7 +28,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.2.0"}
+    {:ferricstore_sdk, "~> 0.2.1"}
   ]
 end
 ```
@@ -50,7 +50,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.7.1
+  ghcr.io/ferricstore/ferricstore:0.7.2
 ```
 
 The SDK examples assume:
@@ -194,10 +194,37 @@ Use `FerricStore.SDK` when you want topology-aware routing from the client:
 {:ok, "world"} = FerricStore.SDK.get(sdk, "{tenant:1}:hello")
 ```
 
+### 10. Probe management capabilities
+
+Control-plane callers should probe capabilities before enabling management UI
+or automation:
+
+```elixir
+{:ok, caps} = FerricStore.SDK.capabilities(sdk)
+
+if caps["acl_management"] do
+  FerricStore.SDK.acl_set_user(sdk, "platform_worker_abcd", [
+    "on",
+    ">secret",
+    "+PING",
+    "+@read",
+    "+@write",
+    "-@dangerous",
+    "-@admin",
+    "~tenant:namespace:*"
+  ])
+end
+```
+
+The SDK also exposes narrow namespace, quota, and safe telemetry helpers through
+`FerricStore.SDK.Management` and top-level `FerricStore.SDK` delegates.
+
 ## What you use
 
 - `FerricStore` for native protocol connection and KV/data-structure helpers.
 - `FerricStore.SDK` for topology-aware routing and native command wrappers.
+- `FerricStore.SDK.Flow`, `FerricStore.SDK.Admin`, and `FerricStore.SDK.Management`
+  for typed-map Flow, admin, and control-plane command surfaces.
 - `FerricStore.Flow` for exact FerricFlow command-level control.
 - `FerricStore.Queue` for simple durable queue helpers.
 - `FerricStore.Workflow` for explicit state-machine helpers.
@@ -246,7 +273,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.7.1
+  ghcr.io/ferricstore/ferricstore:0.7.2
 
 mix test --only integration
 ```

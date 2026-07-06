@@ -1,6 +1,6 @@
 # Client API
 
-The SDK has one native protocol client and three convenience layers.
+The SDK has one native protocol client and four convenience layers.
 
 ```elixir
 {:ok, client} = FerricStore.start_link(url: "ferric://127.0.0.1:6388")
@@ -19,6 +19,7 @@ General client and KV/data-structure helpers.
 | List | `lpush/3`, `rpush/3`, `lpop/2`, `rpop/2`, `lrange/4` |
 | Set | `sadd/3`, `srem/3`, `smembers/2`, `sismember/3` |
 | Sorted set | `zadd/4`, `zrem/3`, `zrange/5`, `zscore/3` |
+| Management | `FerricStore.SDK.capabilities/2`, ACL, namespace, quota, and telemetry delegates |
 
 Examples:
 
@@ -88,6 +89,29 @@ FerricStore.Workflow.start(workflow, "order-1", payload: "payload")
 
 Use `Workflow` when you want business states. Use `Flow` directly when you need
 exact command control.
+
+## `FerricStore.SDK.Management`
+
+Narrow control-plane helpers over the stable management command contract.
+
+| Area | Functions |
+| --- | --- |
+| Capabilities | `capabilities/2` |
+| ACL | `set_user/4`, `del_user/3`, `get_user/3`, `list_users/2`, `save_acl/2` |
+| Namespace | `ensure_namespace/4`, `get_namespace/3`, `list_namespaces/2`, `delete_namespace/3` |
+| Quota | `set_quota/4`, `get_quota/3`, `quota_usage/3` |
+| Telemetry | `cluster_info/2`, `namespace_usage/3`, `flow_query/3`, `flow_history/4` |
+
+Top-level `FerricStore.SDK` delegates are also available with `acl_*`,
+namespace, quota, and telemetry names.
+
+```elixir
+{:ok, caps} = FerricStore.SDK.capabilities(client)
+
+if caps["namespace_management"] do
+  FerricStore.SDK.ensure_namespace(client, "tenant:acme", flow_count: 100)
+end
+```
 
 ## Low-level command escape hatch
 

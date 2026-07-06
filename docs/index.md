@@ -30,6 +30,8 @@ The Elixir SDK is native-protocol first. It exposes:
 | Area | Modules |
 | --- | --- |
 | Connection and KV | `FerricStore`, `FerricStore.Client`, `FerricStore.Protocol` |
+| Topology-aware SDK | `FerricStore.SDK`, `FerricStore.SDK.KV`, `FerricStore.SDK.Flow` |
+| Management helpers | `FerricStore.SDK.Management` |
 | Flow commands | `FerricStore.Flow` |
 | Queue helper | `FerricStore.Queue` |
 | Workflow helper | `FerricStore.Workflow` |

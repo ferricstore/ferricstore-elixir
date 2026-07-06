@@ -25,6 +25,14 @@ defmodule FerricStore.ProtocolTest do
     assert Protocol.opcode(:flow_search) == 0x0230
   end
 
+  test "resolves newer native opcodes through the complete SDK table" do
+    assert Protocol.opcode(:route_batch) == 0x000F
+    assert Protocol.opcode(:flow_schedule_create) == 0x0225
+    assert Protocol.opcode(:flow_budget_release) == 0x0258
+    assert Protocol.opcode(:cluster_health) == 0x0301
+    assert Protocol.opcode(:ferricstore_blobgc) == 0x0310
+  end
+
   test "encodes custom payload request frame" do
     frame =
       Protocol.encode_request(

@@ -14,20 +14,16 @@ Integration tests are explicit ExUnit integration tests and should run against
 the published FerricStore Docker image.
 
 ```bash
-docker run --rm \
-  -e FERRICSTORE_PROTECTED_MODE=false \
-  -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
-  -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
-  -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.7.1
-
-mix test --only integration
+scripts/test_integration.sh
 ```
 
-Use `FERRICSTORE_TEST_URL` only when the local port is different:
+The script starts `ghcr.io/ferricstore/ferricstore:0.7.2`, waits for native
+startup, runs `mix test --only integration`, and removes the container.
+
+Use `FERRICSTORE_TEST_PORT` when the local port is different:
 
 ```bash
-FERRICSTORE_TEST_URL=ferric://127.0.0.1:6389 mix test --only integration
+FERRICSTORE_TEST_PORT=6389 scripts/test_integration.sh
 ```
 
 ## Full local gate
@@ -38,7 +34,7 @@ mix compile --warnings-as-errors
 mix credo --strict
 mix test --exclude integration
 mix hex.build
-mix test --only integration
+scripts/test_integration.sh
 ```
 
 ## Testing application code

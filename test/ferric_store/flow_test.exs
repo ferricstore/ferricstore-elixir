@@ -214,6 +214,7 @@ defmodule FerricStore.FlowTest do
              partition_key: "tenant-1",
              state_meta: %{version: 1},
              consistent_projection: true,
+             terminal_only: true,
              count: 10
            ) == %{
              "type" => "review",
@@ -221,6 +222,7 @@ defmodule FerricStore.FlowTest do
              "partition_key" => "tenant-1",
              "state_meta" => %{"accept" => %{"version" => 1}},
              "consistent_projection" => true,
+             "terminal_only" => true,
              "count" => 10
            }
   end
