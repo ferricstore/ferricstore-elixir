@@ -495,6 +495,246 @@ defmodule FerricStore.ClientIntegrationTest do
     end)
   end
 
+  test "flow FIFO state policy is opt-in and partition scoped", %{client: client} do
+    suffix = unique("fifo-policy")
+    type = "#{suffix}-type"
+    partition_a = "#{suffix}:partition-a"
+    partition_b = "#{suffix}:partition-b"
+    partition_c = "#{suffix}:partition-c"
+    first_a = "#{suffix}:z-first-a"
+    second_a = "#{suffix}:a-second-a"
+    first_b = "#{suffix}:z-first-b"
+    ignored_c = "#{suffix}:z-ignored-c"
+
+    policy =
+      FerricStore.Flow.policy_set(client, type,
+        states: %{
+          "queued" => [mode: :fifo],
+          "ready" => %{mode: :fifo}
+        }
+      )
+
+    assert get_in(policy, ["states", "queued", "mode"]) in ["fifo", :fifo]
+    assert get_in(policy, ["states", "ready", "mode"]) in ["fifo", :fifo]
+
+    assert_okish(
+      FerricStore.Flow.create(client, "#{suffix}:parallel-default",
+        type: type,
+        state: "not-fifo",
+        priority: 1,
+        payload: "parallel",
+        now_ms: 1_000,
+        run_at_ms: 2_000
+      )
+    )
+
+    assert {:error, reason} =
+             FerricStore.Flow.create(client, "#{suffix}:missing-partition",
+               type: type,
+               state: "queued",
+               payload: "missing",
+               now_ms: 1_000,
+               run_at_ms: 2_000
+             )
+
+    assert_error_message(reason, "partition_key is required for fifo state")
+
+    assert {:error, reason} =
+             FerricStore.Flow.create(client, "#{suffix}:priority",
+               type: type,
+               state: "queued",
+               partition_key: partition_a,
+               priority: 1,
+               payload: "priority",
+               now_ms: 1_000,
+               run_at_ms: 2_000
+             )
+
+    assert_error_message(reason, "priority is not supported for fifo state")
+
+    for {id, partition, now_ms} <- [
+          {first_a, partition_a, 1_000},
+          {second_a, partition_a, 1_001},
+          {first_b, partition_b, 1_002},
+          {ignored_c, partition_c, 1_003}
+        ] do
+      assert_okish(
+        FerricStore.Flow.create(client, id,
+          type: type,
+          state: "queued",
+          partition_key: partition,
+          payload: id,
+          now_ms: now_ms,
+          run_at_ms: 2_000
+        )
+      )
+    end
+
+    claimed =
+      FerricStore.Flow.claim_due(client, type,
+        state: "queued",
+        partition_keys: [partition_a, partition_b],
+        worker: "#{suffix}:worker",
+        limit: 10,
+        include_attributes: false,
+        now_ms: 2_000
+      )
+
+    assert MapSet.new(Enum.map(claimed, & &1["id"])) == MapSet.new([first_a, first_b])
+    assert Enum.all?(claimed, &(&1["partition_key"] in [partition_a, partition_b]))
+    assert Enum.all?(claimed, &is_binary(&1["lease_token"]))
+    assert Enum.all?(claimed, &is_integer(&1["fencing_token"]))
+
+    assert [] =
+             FerricStore.Flow.claim_due(client, type,
+               state: "queued",
+               partition_keys: [partition_a, partition_b],
+               worker: "#{suffix}:worker",
+               limit: 10,
+               include_attributes: false,
+               now_ms: 2_001
+             )
+
+    assert [%{"id" => ^ignored_c, "partition_key" => ^partition_c}] =
+             FerricStore.Flow.claim_due(client, type,
+               state: "queued",
+               partition_keys: [partition_c],
+               worker: "#{suffix}:worker",
+               limit: 10,
+               include_attributes: false,
+               now_ms: 2_001
+             )
+  end
+
+  test "flow transition into FIFO states carries partition key and rejects priority", %{
+    client: client
+  } do
+    suffix = unique("fifo-transition")
+    type = "#{suffix}-type"
+    missing_type = "#{suffix}-missing-type"
+    partition = "#{suffix}:partition"
+    success_id = "#{suffix}:success"
+    priority_id = "#{suffix}:priority"
+    missing_partition_id = "#{suffix}:missing-partition-id"
+
+    assert %{"states" => %{"ready" => %{"mode" => mode}}} =
+             FerricStore.Flow.policy_set(client, type, states: %{"ready" => [mode: :fifo]})
+
+    assert mode in ["fifo", :fifo]
+
+    assert %{"states" => %{"ready" => %{"mode" => missing_mode}}} =
+             FerricStore.Flow.policy_set(client, missing_type,
+               states: %{"ready" => [mode: :fifo]}
+             )
+
+    assert missing_mode in ["fifo", :fifo]
+
+    for id <- [success_id, priority_id] do
+      assert_okish(
+        FerricStore.Flow.create(client, id,
+          type: type,
+          state: "intake",
+          partition_key: partition,
+          payload: id,
+          now_ms: 1_000,
+          run_at_ms: 1_000
+        )
+      )
+    end
+
+    assert_okish(
+      FerricStore.Flow.create(client, missing_partition_id,
+        type: missing_type,
+        state: "intake",
+        payload: missing_partition_id,
+        now_ms: 1_000,
+        run_at_ms: 1_000
+      )
+    )
+
+    [success_job] =
+      FerricStore.Flow.claim_due(client, type,
+        state: "intake",
+        partition_key: partition,
+        worker: "#{suffix}:worker",
+        limit: 1,
+        include_attributes: false,
+        now_ms: 1_000
+      )
+
+    success_claimed_id = success_job["id"]
+
+    assert_okish(
+      FerricStore.Flow.transition(client, success_claimed_id,
+        from_state: "running",
+        to_state: "ready",
+        partition_key: success_job["partition_key"],
+        lease_token: success_job["lease_token"],
+        fencing_token: success_job["fencing_token"],
+        now_ms: 1_100,
+        run_at_ms: 1_100
+      )
+    )
+
+    [ready_job] =
+      FerricStore.Flow.claim_due(client, type,
+        state: "ready",
+        partition_keys: [partition],
+        worker: "#{suffix}:ready-worker",
+        limit: 1,
+        include_attributes: false,
+        now_ms: 1_100
+      )
+
+    assert ready_job["id"] == success_claimed_id
+    assert ready_job["partition_key"] == partition
+
+    [priority_job] =
+      FerricStore.Flow.claim_due(client, type,
+        state: "intake",
+        partition_key: partition,
+        worker: "#{suffix}:worker",
+        limit: 1,
+        include_attributes: false,
+        now_ms: 1_200
+      )
+
+    assert {:error, reason} =
+             FerricStore.Flow.transition(client, priority_job["id"],
+               from_state: "running",
+               to_state: "ready",
+               partition_key: priority_job["partition_key"],
+               lease_token: priority_job["lease_token"],
+               fencing_token: priority_job["fencing_token"],
+               priority: 1,
+               now_ms: 1_300,
+               run_at_ms: 1_300
+             )
+
+    assert_error_message(reason, "priority is not supported for fifo state")
+
+    [missing_partition_job] =
+      FerricStore.Flow.claim_due(client, missing_type,
+        state: "intake",
+        worker: "#{suffix}:worker",
+        limit: 1,
+        include_attributes: false,
+        now_ms: 1_400
+      )
+
+    assert {:error, reason} =
+             FerricStore.Flow.transition(client, missing_partition_job["id"],
+               from_state: "running",
+               to_state: "ready",
+               lease_token: missing_partition_job["lease_token"],
+               fencing_token: missing_partition_job["fencing_token"],
+               now_ms: 1_500,
+               run_at_ms: 1_500
+             )
+
+    assert_error_message(reason, "partition_key is required for fifo state")
+  end
+
   test "topology-aware SDK flow wrapper supports indexed state metadata", %{client: old_client} do
     {:ok, client} =
       FerricStore.SDK.start_link(

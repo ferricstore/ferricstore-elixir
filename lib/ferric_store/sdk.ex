@@ -3,6 +3,7 @@ defmodule FerricStore.SDK do
   Elixir SDK entry points.
   """
 
+  alias FerricStore.SDK.Invocation
   alias FerricStore.SDK.KV
   alias FerricStore.SDK.Management
   alias FerricStore.SDK.Native.Client
@@ -84,4 +85,23 @@ defmodule FerricStore.SDK do
   defdelegate namespace_usage(client, prefix, opts \\ []), to: Management
   defdelegate flow_query(client, attrs \\ %{}, opts \\ []), to: Management
   defdelegate flow_history(client, id, attrs \\ %{}, opts \\ []), to: Management
+
+  defdelegate invocation_definition_put(client, definition, opts \\ []),
+    to: Invocation,
+    as: :put_definition
+
+  defdelegate invocation_definition_get(client, name, opts \\ []),
+    to: Invocation,
+    as: :get_definition
+
+  defdelegate invocation_definition_list(client, opts \\ []),
+    to: Invocation,
+    as: :list_definitions
+
+  defdelegate invocation_create(client, name, attrs, opts \\ []), to: Invocation, as: :create
+  defdelegate invocation_get(client, id, opts \\ []), to: Invocation, as: :get
+
+  defdelegate invocation_partition_list(client, name, opts \\ []),
+    to: Invocation,
+    as: :list_partitions
 end

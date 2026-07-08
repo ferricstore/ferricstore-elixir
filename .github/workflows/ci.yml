@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       ferricstore:
-        image: ghcr.io/ferricstore/ferricstore:0.7.2
+        image: ghcr.io/ferricstore/ferricstore:0.7.5
         env:
           FERRICSTORE_PROTECTED_MODE: "false"
           FERRICSTORE_NATIVE_ENABLED: "true"

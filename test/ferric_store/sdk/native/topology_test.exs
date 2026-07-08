@@ -49,6 +49,33 @@ defmodule FerricStore.SDK.Native.TopologyTest do
     assert route1.endpoint.host == "b.local"
   end
 
+  test "uses seed endpoint host when SHARDS range omits advertised host" do
+    payload = %{
+      "route_epoch" => 123,
+      "shard_count" => 1,
+      "ranges" => [
+        %{
+          "first_slot" => 0,
+          "last_slot" => 1023,
+          "shard" => 0,
+          "lane_id" => 1,
+          "owner_node" => "ferricstore@container",
+          "native_port" => 6388
+        }
+      ]
+    }
+
+    assert {:ok, topology} =
+             Topology.build(payload,
+               default_endpoint: %{host: "127.0.0.1", native_port: 6388}
+             )
+
+    assert {:ok, route} = Topology.route_key(topology, "plain")
+    assert route.endpoint.host == "127.0.0.1"
+    assert route.endpoint.native_port == 6388
+    assert route.leader_node == "ferricstore@container"
+  end
+
   test "leader_unknown ranges return a specific topology error" do
     payload = %{
       "route_epoch" => 124,

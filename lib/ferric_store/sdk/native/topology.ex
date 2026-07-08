@@ -20,29 +20,33 @@ defmodule FerricStore.SDK.Native.Topology do
           optional(:native_tls_port) => non_neg_integer()
         }
 
-  @spec build(map()) :: {:ok, struct()} | {:error, term()}
-  def build(%{"ranges" => ranges} = payload) when is_list(ranges) do
+  @spec build(map(), keyword()) :: {:ok, struct()} | {:error, term()}
+  def build(payload, opts \\ [])
+
+  def build(%{"ranges" => ranges} = payload, opts) when is_list(ranges) do
     topology =
       %__MODULE__{
         route_epoch: int(payload["route_epoch"], 0),
         shard_count: int(payload["shard_count"], 0)
       }
 
+    default_endpoint = Keyword.get(opts, :default_endpoint, %{})
+
     Enum.reduce_while(ranges, {:ok, topology}, fn range, {:ok, acc} ->
-      case put_range(acc, range) do
+      case put_range(acc, range, default_endpoint) do
         {:ok, next} -> {:cont, {:ok, next}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  def build(%{ranges: ranges} = payload) when is_list(ranges) do
+  def build(%{ranges: ranges} = payload, opts) when is_list(ranges) do
     payload
     |> stringify_keys()
-    |> build()
+    |> build(opts)
   end
 
-  def build(_payload), do: {:error, :invalid_shards_payload}
+  def build(_payload, _opts), do: {:error, :invalid_shards_payload}
 
   @spec route_key(struct(), binary()) :: {:ok, map()} | {:error, term()}
   def route_key(%__MODULE__{} = topology, key) when is_binary(key) do
@@ -67,19 +71,19 @@ defmodule FerricStore.SDK.Native.Topology do
   @spec endpoint_key(endpoint()) :: {binary(), non_neg_integer()}
   def endpoint_key(%{host: host, native_port: port}), do: {host, port}
 
-  defp put_range(_topology, %{"hint" => "leader_unknown"} = range) do
+  defp put_range(_topology, %{"hint" => "leader_unknown"} = range, _default_endpoint) do
     case fetch_int(range, "shard") do
       {:ok, shard} -> {:error, {:leader_unknown, shard}}
       {:error, _reason} -> {:error, {:leader_unknown, range}}
     end
   end
 
-  defp put_range(topology, range) do
+  defp put_range(topology, range, default_endpoint) do
     with {:ok, first} <- fetch_int(range, "first_slot"),
          {:ok, last} <- fetch_int(range, "last_slot"),
          {:ok, shard} <- fetch_int(range, "shard"),
          {:ok, lane_id} <- fetch_int(range, "lane_id"),
-         {:ok, endpoint} <- endpoint_from_range(range),
+         {:ok, endpoint} <- endpoint_from_range(range, default_endpoint),
          true <- first in 0..(@num_slots - 1),
          true <- last in first..(@num_slots - 1) do
       key = endpoint_key(endpoint)
@@ -103,14 +107,16 @@ defmodule FerricStore.SDK.Native.Topology do
     end
   end
 
-  defp endpoint_from_range(%{"endpoint" => endpoint}) when is_map(endpoint),
-    do: endpoint_from_map(endpoint)
+  defp endpoint_from_range(%{"endpoint" => endpoint}, default_endpoint) when is_map(endpoint),
+    do: endpoint_from_map(endpoint, default_endpoint)
 
-  defp endpoint_from_range(range), do: endpoint_from_map(range)
+  defp endpoint_from_range(range, default_endpoint),
+    do: endpoint_from_map(range, default_endpoint)
 
-  defp endpoint_from_map(map) do
-    with host when is_binary(host) <- map["host"] || map["native_host"],
-         port when is_integer(port) <- map["native_port"] do
+  defp endpoint_from_map(map, default_endpoint) do
+    with host when is_binary(host) <-
+           map["host"] || map["native_host"] || default_host(default_endpoint),
+         port when is_integer(port) <- map["native_port"] || default_port(default_endpoint) do
       endpoint =
         %{
           node: map["node"] || map["leader_node"] || map["owner_node"] || host,
@@ -124,6 +130,14 @@ defmodule FerricStore.SDK.Native.Topology do
       _ -> {:error, :invalid_endpoint}
     end
   end
+
+  defp default_host(%{host: host}) when is_binary(host), do: host
+  defp default_host(%{"host" => host}) when is_binary(host), do: host
+  defp default_host(_default_endpoint), do: nil
+
+  defp default_port(%{native_port: port}) when is_integer(port), do: port
+  defp default_port(%{"native_port" => port}) when is_integer(port), do: port
+  defp default_port(_default_endpoint), do: nil
 
   defp fetch_int(map, key) do
     case map[key] do

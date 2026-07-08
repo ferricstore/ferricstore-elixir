@@ -17,7 +17,7 @@ the published FerricStore Docker image.
 scripts/test_integration.sh
 ```
 
-The script starts `ghcr.io/ferricstore/ferricstore:0.7.2`, waits for native
+The script starts `ghcr.io/ferricstore/ferricstore:0.7.5`, waits for native
 startup, runs `mix test --only integration`, and removes the container.
 
 Use `FERRICSTORE_TEST_PORT` when the local port is different:

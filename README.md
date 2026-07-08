@@ -2,7 +2,7 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public alpha `0.2.1`. APIs may change before `1.0`, but the SDK is
+Status: public alpha `0.2.2`. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
 
@@ -28,7 +28,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.2.1"}
+    {:ferricstore_sdk, "~> 0.2.2"}
   ]
 end
 ```
@@ -50,7 +50,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.7.2
+  ghcr.io/ferricstore/ferricstore:0.7.5
 ```
 
 The SDK examples assume:
@@ -186,6 +186,23 @@ FerricStore.Flow.search(client,
 )
 ```
 
+FIFO state policy is opt-in per state. Use an explicit partition key for records
+that enter FIFO states; priority ordering is a parallel-state feature and the
+server rejects priority on FIFO entries:
+
+```elixir
+FerricStore.Flow.policy_set(client, "order",
+  states: %{"created" => [mode: :fifo]}
+)
+
+FerricStore.Flow.create(client, "order-3",
+  type: "order",
+  state: "created",
+  partition_key: "tenant-a:order-3",
+  payload: "payload"
+)
+```
+
 Use `FerricStore.SDK` when you want topology-aware routing from the client:
 
 ```elixir
@@ -218,6 +235,34 @@ end
 
 The SDK also exposes narrow namespace, quota, and safe telemetry helpers through
 `FerricStore.SDK.Management` and top-level `FerricStore.SDK` delegates.
+
+### 11. Enterprise invocation helpers
+
+FerricStore Enterprise exposes invocation definitions and invocation creation
+through the same native SDK client:
+
+```elixir
+{:ok, sdk} = FerricStore.SDK.start_link(url: "ferric://127.0.0.1:6388")
+
+{:ok, definition} =
+  FerricStore.SDK.invocation_definition_put(sdk, %{
+    name: "send-email",
+    acl: %{scope_required: true},
+    partition: %{key: "tenant:{tenant}:invocation:send-email"}
+  })
+
+{:ok, created} =
+  FerricStore.SDK.invocation_create(sdk, "send-email", %{tenant: "acme"},
+    context: %{subject: "user-1"}
+  )
+
+{:ok, invocation} = FerricStore.SDK.invocation_get(sdk, created["invocation_id"])
+{:ok, partitions} = FerricStore.SDK.invocation_partition_list(sdk, "send-email")
+```
+
+Trusted proxy deployments can pass `request_context: %{...}`. The context is
+sent out-of-band through the native command envelope, so untrusted callers cannot
+spoof it by only editing the invocation payload.
 
 ## What you use
 
@@ -273,7 +318,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.7.2
+  ghcr.io/ferricstore/ferricstore:0.7.5
 
 mix test --only integration
 ```

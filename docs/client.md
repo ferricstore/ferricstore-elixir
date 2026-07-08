@@ -42,6 +42,7 @@ Exact FerricFlow command wrapper.
 | Claim/lease | `claim_due/3` |
 | Mutate | `transition/3`, `complete/3`, `complete_many/3`, `retry/3`, `fail/3`, `cancel/3`, `signal/3` |
 | Values | `value_put/3`, `value_mget/3` |
+| Policy | `policy_set/3`, `policy_get/3` |
 
 Example:
 
@@ -62,6 +63,17 @@ FerricStore.Flow.create(client, "flow-1",
 
 `claim_due/3` returns compact job maps with attributes by default. Pass
 `include_attributes: false` for the leanest hot path.
+
+FIFO Flow state policy is opt-in per state:
+
+```elixir
+FerricStore.Flow.policy_set(client, "order",
+  states: %{"created" => [mode: :fifo]}
+)
+```
+
+Records that enter FIFO states must use `partition_key`. Do not set `priority`
+on FIFO records or transitions; the server rejects priority for FIFO states.
 
 ## `FerricStore.Queue`
 

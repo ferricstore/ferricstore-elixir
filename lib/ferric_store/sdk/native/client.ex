@@ -679,7 +679,7 @@ defmodule FerricStore.SDK.Native.Client do
          {:ok, _hello} <- hello(conn, state),
          :ok <- maybe_auth(conn, state),
          {:ok, shards} <- Connection.request(conn, @op_shards, %{}, 0),
-         {:ok, topology} <- Topology.build(shards) do
+         {:ok, topology} <- Topology.build(shards, default_endpoint: endpoint) do
       {:ok, topology, conn}
     end
   end

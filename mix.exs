@@ -4,7 +4,7 @@ defmodule FerricStore.MixProject do
   def project do
     [
       app: :ferricstore_sdk,
-      version: "0.2.1",
+      version: "0.2.2",
       elixir: "~> 1.19",
       description: "Official Elixir SDK for FerricStore over the native ferric:// protocol.",
       package: package(),
@@ -35,7 +35,8 @@ defmodule FerricStore.MixProject do
     [
       {:arch_test, "~> 0.3.1", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.38", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.38", only: :dev, runtime: false},
+      {:jason, "~> 1.4"}
     ]
   end
 

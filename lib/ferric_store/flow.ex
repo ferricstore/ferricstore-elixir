@@ -73,7 +73,13 @@ defmodule FerricStore.Flow do
   end
 
   def transition(client, id, opts),
-    do: Client.command(client, "FLOW.TRANSITION", transition_args(id, opts))
+    do:
+      Client.native(
+        client,
+        Protocol.opcode(:flow_transition),
+        transition_payload(id, opts),
+        client_opts(opts)
+      )
 
   def complete(client, id, opts),
     do:
@@ -347,6 +353,32 @@ defmodule FerricStore.Flow do
     append_named_values(args, codec, opts)
   end
 
+  def transition_payload(id, opts) do
+    codec = Keyword.get(opts, :codec, Raw)
+    now = Keyword.get(opts, :now_ms, now_ms())
+
+    %{
+      "id" => id,
+      "from_state" => Keyword.fetch!(opts, :from_state),
+      "to_state" => Keyword.fetch!(opts, :to_state),
+      "lease_token" => Keyword.fetch!(opts, :lease_token),
+      "now_ms" => now
+    }
+    |> put_if_present("fencing_token", Keyword.fetch!(opts, :fencing_token))
+    |> put_if_present("partition_key", Keyword.get(opts, :partition_key))
+    |> put_if_present("payload", encoded_or_nil(codec, Keyword.get(opts, :payload)))
+    |> put_if_present("run_at_ms", Keyword.get(opts, :run_at_ms, now))
+    |> put_if_present("priority", Keyword.get(opts, :priority))
+    |> put_if_present("attributes", stringify_map(Keyword.get(opts, :attributes)))
+    |> put_if_present("attributes_merge", stringify_map(Keyword.get(opts, :attributes_merge)))
+    |> put_if_present("attributes_delete", Keyword.get(opts, :attributes_delete))
+    |> put_if_present("state_meta", stringify_nested_map(Keyword.get(opts, :state_meta)))
+    |> put_if_present("values", encode_value_map(codec, Keyword.get(opts, :values)))
+    |> put_if_present("value_refs", stringify_map(Keyword.get(opts, :value_refs)))
+    |> put_if_present("drop_values", Keyword.get(opts, :drop_values))
+    |> put_if_present("override_values", Keyword.get(opts, :override_values))
+  end
+
   def complete_args(id, opts), do: terminal_args(id, opts, "RESULT")
   def complete_payload(id, opts), do: terminal_payload(id, opts, "result")
 
@@ -397,12 +429,27 @@ defmodule FerricStore.Flow do
     append_named_values(args, Keyword.get(opts, :codec, Raw), opts)
   end
 
+  def policy_set_args(type, opts) do
+    [type]
+    |> append("INDEXED_STATE_META", Keyword.get(opts, :indexed_state_meta))
+    |> append_policy_states(Keyword.get(opts, :states))
+  end
+
   def policy_set_payload(type, opts) do
     %{"type" => type}
     |> put_if_keyword_present("indexed_state_meta", opts, :indexed_state_meta)
+    |> put_if_keyword_present("indexed_attributes", opts, :indexed_attributes)
+    |> put_if_keyword_present("policy_version", opts, :policy_version)
+    |> put_if_keyword_present("retry", opts, :retry)
+    |> put_if_keyword_present("retention", opts, :retention)
+    |> put_if_keyword_present("governance", opts, :governance)
+    |> put_if_keyword_present("states", opts, :states)
   end
 
-  def policy_get_payload(type, _opts \\ []), do: %{"type" => type}
+  def policy_get_payload(type, opts \\ []) do
+    %{"type" => type}
+    |> put_if_present("state", Keyword.get(opts, :state))
+  end
 
   def search_payload(opts) do
     %{"type" => Keyword.fetch!(opts, :type)}
@@ -492,7 +539,7 @@ defmodule FerricStore.Flow do
 
   defp put_if_keyword_present(map, key, opts, opt_key) do
     if Keyword.has_key?(opts, opt_key) do
-      Map.put(map, key, Keyword.get(opts, opt_key))
+      Map.put(map, key, normalize_policy_value(Keyword.get(opts, opt_key)))
     else
       map
     end
@@ -563,6 +610,36 @@ defmodule FerricStore.Flow do
     end
   end
 
+  defp normalize_policy_value(nil), do: nil
+
+  defp normalize_policy_value(values) when is_list(values) do
+    cond do
+      Keyword.keyword?(values) ->
+        values |> Map.new() |> normalize_policy_value()
+
+      state_policy_pair_list?(values) ->
+        values |> Map.new() |> normalize_policy_value()
+
+      true ->
+        Enum.map(values, &normalize_policy_value/1)
+    end
+  end
+
+  defp normalize_policy_value(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), normalize_policy_value(value)} end)
+  end
+
+  defp normalize_policy_value(value), do: value
+
+  defp state_policy_pair_list?([_ | _] = values), do: Enum.all?(values, &state_policy_pair?/1)
+  defp state_policy_pair_list?(_values), do: false
+
+  defp state_policy_pair?({state, policy})
+       when (is_binary(state) or is_atom(state)) and (is_map(policy) or is_list(policy)),
+       do: true
+
+  defp state_policy_pair?(_value), do: false
+
   defp normalize_state_scoped_meta(state, state_meta) do
     if state_scoped_meta?(state_meta) do
       stringify_nested_map(state_meta)
@@ -625,6 +702,51 @@ defmodule FerricStore.Flow do
     do: Enum.reduce(values, args, &append(&2, name, &1))
 
   defp append_many(args, name, value), do: append(args, name, value)
+
+  defp append_policy_states(args, nil), do: args
+
+  defp append_policy_states(args, states) do
+    states
+    |> policy_state_pairs()
+    |> Enum.reduce(args, fn {state, policy}, acc ->
+      acc = acc ++ ["STATE", to_string(state)]
+
+      case policy_mode(policy) do
+        nil -> acc
+        mode -> acc ++ ["MODE", policy_mode_arg(mode)]
+      end
+    end)
+  end
+
+  defp policy_state_pairs(states) when is_map(states), do: Map.to_list(states)
+
+  defp policy_state_pairs(states) when is_list(states) do
+    cond do
+      Keyword.keyword?(states) -> states
+      state_policy_pair_list?(states) -> states
+      true -> []
+    end
+  end
+
+  defp policy_state_pairs(_states), do: []
+
+  defp policy_mode(policy) when is_map(policy),
+    do: Map.get(policy, :mode) || Map.get(policy, "mode")
+
+  defp policy_mode(policy) when is_list(policy) do
+    Enum.find_value(policy, fn
+      {:mode, value} -> value
+      {"mode", value} -> value
+      _other -> nil
+    end)
+  end
+
+  defp policy_mode(_policy), do: nil
+
+  defp policy_mode_arg(:fifo), do: "FIFO"
+  defp policy_mode_arg(:parallel), do: "PARALLEL"
+  defp policy_mode_arg(mode) when is_binary(mode), do: mode |> String.trim() |> String.upcase()
+  defp policy_mode_arg(mode), do: mode |> to_string() |> String.upcase()
 
   defp append_values(args, nil, nil), do: args
 
