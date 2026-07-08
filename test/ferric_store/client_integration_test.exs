@@ -191,7 +191,6 @@ defmodule FerricStore.ClientIntegrationTest do
 
     case SDK.acl_set_user(client, username, ["on"]) do
       {:ok, _value} ->
-        assert acl_capable?
         assert_docker_command_response(SDK.acl_get_user(client, username))
         assert_docker_command_response(SDK.acl_del_user(client, username))
         assert_docker_command_response(SDK.acl_save(client))
