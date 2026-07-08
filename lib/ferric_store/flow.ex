@@ -632,7 +632,6 @@ defmodule FerricStore.Flow do
   defp normalize_policy_value(value), do: value
 
   defp state_policy_pair_list?([_ | _] = values), do: Enum.all?(values, &state_policy_pair?/1)
-  defp state_policy_pair_list?(_values), do: false
 
   defp state_policy_pair?({state, policy})
        when (is_binary(state) or is_atom(state)) and (is_map(policy) or is_list(policy)),

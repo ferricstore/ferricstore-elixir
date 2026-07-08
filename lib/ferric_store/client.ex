@@ -104,7 +104,6 @@ defmodule FerricStore.Client do
       |> activate_socket(multiplex)
     else
       {:error, %Error{} = error, _state} -> {:stop, error}
-      {:error, reason, _state} -> {:stop, reason}
       {:error, reason} -> {:stop, reason}
     end
   end
@@ -329,7 +328,7 @@ defmodule FerricStore.Client do
     header_size = Protocol.header_size()
 
     case buffer do
-      <<header_binary::binary-size(header_size), rest::binary>> ->
+      <<header_binary::binary-size(^header_size), rest::binary>> ->
         take_frame_body(header_binary, rest)
 
       _short ->
@@ -348,7 +347,7 @@ defmodule FerricStore.Client do
     do: :incomplete
 
   defp take_frame_body(header, rest, body_length) do
-    <<body::binary-size(body_length), remaining::binary>> = rest
+    <<body::binary-size(^body_length), remaining::binary>> = rest
     {:ok, header, body, remaining}
   end
 

@@ -2,7 +2,7 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public alpha `0.2.2`. APIs may change before `1.0`, but the SDK is
+Status: public alpha `0.2.3`. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
 
@@ -28,7 +28,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.2.2"}
+    {:ferricstore_sdk, "~> 0.2.3"}
   ]
 end
 ```

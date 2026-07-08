@@ -4,8 +4,8 @@ defmodule FerricStore.MixProject do
   def project do
     [
       app: :ferricstore_sdk,
-      version: "0.2.2",
-      elixir: "~> 1.19",
+      version: "0.2.3",
+      elixir: "~> 1.20",
       description: "Official Elixir SDK for FerricStore over the native ferric:// protocol.",
       package: package(),
       source_url: "https://github.com/ferricstore/ferricstore-elixir",

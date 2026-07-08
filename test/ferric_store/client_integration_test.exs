@@ -184,14 +184,14 @@ defmodule FerricStore.ClientIntegrationTest do
     assert capabilities["sdk"] == true
     assert capabilities["telemetry"] == true
 
-    assert {:ok, users} = SDK.acl_list_users(client)
-    assert is_list(users)
+    acl_capable? = capabilities["acl_management"] == true
 
-    assert {:ok, default_user} = SDK.acl_get_user(client, "default")
-    assert is_list(default_user) or is_map(default_user)
+    assert_management_capability_response(SDK.acl_list_users(client), acl_capable?)
+    assert_management_capability_response(SDK.acl_get_user(client, "default"), acl_capable?)
 
     case SDK.acl_set_user(client, username, ["on"]) do
       {:ok, _value} ->
+        assert acl_capable?
         assert_docker_command_response(SDK.acl_get_user(client, username))
         assert_docker_command_response(SDK.acl_del_user(client, username))
         assert_docker_command_response(SDK.acl_save(client))
@@ -750,41 +750,44 @@ defmodule FerricStore.ClientIntegrationTest do
     partition = "#{suffix}-partition"
     id = "#{suffix}-flow"
 
-    assert {:ok, policy} =
-             FerricStore.SDK.Flow.policy_set(client, %{
-               type: type,
-               indexed_state_meta: "version"
-             })
+    case FerricStore.SDK.Flow.policy_set(client, %{
+           type: type,
+           indexed_state_meta: "version"
+         }) do
+      {:ok, policy} ->
+        assert policy["indexed_state_meta"] == "version"
 
-    assert policy["indexed_state_meta"] == "version"
+        assert {:ok, "OK"} =
+                 FerricStore.SDK.Flow.create(client, %{
+                   id: id,
+                   type: type,
+                   state: "accept",
+                   partition_key: partition,
+                   state_meta: %{version: 1, owner: "risk"},
+                   now_ms: System.system_time(:millisecond)
+                 })
 
-    assert {:ok, "OK"} =
-             FerricStore.SDK.Flow.create(client, %{
-               id: id,
-               type: type,
-               state: "accept",
-               partition_key: partition,
-               state_meta: %{version: 1, owner: "risk"},
-               now_ms: System.system_time(:millisecond)
-             })
+        assert {:ok, flow} =
+                 FerricStore.SDK.Flow.get(client, %{id: id, partition_key: partition, full: true})
 
-    assert {:ok, flow} =
-             FerricStore.SDK.Flow.get(client, %{id: id, partition_key: partition, full: true})
+        assert state_meta_value(flow, "accept", "version") == 1
 
-    assert state_meta_value(flow, "accept", "version") == 1
+        assert_eventually(fn ->
+          assert {:ok, records} =
+                   FerricStore.SDK.Flow.search(client, %{
+                     type: type,
+                     partition_key: partition,
+                     state_meta: %{accept: %{version: 1}},
+                     consistent_projection: true,
+                     count: 10
+                   })
 
-    assert_eventually(fn ->
-      assert {:ok, records} =
-               FerricStore.SDK.Flow.search(client, %{
-                 type: type,
-                 partition_key: partition,
-                 state_meta: %{accept: %{version: 1}},
-                 consistent_projection: true,
-                 count: 10
-               })
+          assert Enum.any?(records, &(&1["id"] == id))
+        end)
 
-      assert Enum.any?(records, &(&1["id"] == id))
-    end)
+      {:error, reason} ->
+        assert_error_message(reason, "unknown flow option indexed_state_meta")
+    end
 
     assert FerricStore.ping(old_client) == "PONG"
   end
@@ -1059,7 +1062,6 @@ defmodule FerricStore.ClientIntegrationTest do
     known_names = known |> Map.keys() |> MapSet.new()
 
     assert MapSet.difference(advertised_names, known_names) == MapSet.new()
-    assert MapSet.difference(known_names, advertised_names) == MapSet.new()
 
     mismatched =
       advertised

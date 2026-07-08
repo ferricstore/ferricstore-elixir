@@ -335,24 +335,23 @@ defmodule FerricStore.SDK.Native.Client do
   end
 
   defp start_async_request_task(ctx) do
-    case Task.start(fn ->
-           result =
-             async_connection_request(
-               ctx.client,
-               ctx.conn,
-               ctx.opcode,
-               ctx.key,
-               ctx.payload,
-               ctx.lane_id,
-               ctx.timeout,
-               ctx.opts
-             )
+    Task.start(fn ->
+      result =
+        async_connection_request(
+          ctx.client,
+          ctx.conn,
+          ctx.opcode,
+          ctx.key,
+          ctx.payload,
+          ctx.lane_id,
+          ctx.timeout,
+          ctx.opts
+        )
 
-           GenServer.reply(ctx.from, result)
-         end) do
-      {:ok, _pid} -> :ok
-      {:error, _reason} -> :fallback
-    end
+      GenServer.reply(ctx.from, result)
+    end)
+
+    :ok
   end
 
   defp async_connection_request(client, conn, opcode, key, payload, lane_id, timeout, opts) do
@@ -382,8 +381,6 @@ defmodule FerricStore.SDK.Native.Client do
       {:error, reason, state}
     end
   end
-
-  defp retry_command_result_after_refresh(result, _opcode, _key, _payload, _opts), do: result
 
   defp retry_command_call(client, opcode, key, payload, opts, original_reason) do
     GenServer.call(

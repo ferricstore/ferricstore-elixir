@@ -127,7 +127,6 @@ defmodule FerricStore.SDK.Management do
   defp pair_key(key), do: key |> to_string() |> String.upcase()
 
   defp pair_value(value) when is_boolean(value), do: value
-  defp pair_value(nil), do: nil
   defp pair_value(value) when is_atom(value), do: Atom.to_string(value)
   defp pair_value(value), do: value
 end
