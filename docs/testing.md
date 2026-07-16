@@ -10,15 +10,18 @@ mix test --exclude integration
 
 ## Docker integration tests
 
-Integration tests are explicit ExUnit integration tests and should run against
-the published FerricStore Docker image.
+Integration tests are explicit ExUnit integration tests and run against the
+compatible FerricStore revision pinned by the SDK.
 
 ```bash
 scripts/test_integration.sh
 ```
 
-The script starts `ghcr.io/ferricstore/ferricstore:0.7.5`, waits for native
-startup, runs `mix test --only integration`, and removes the container.
+The script builds commit `be3bd85dedc57b2fd787dcc224e4de90bb660ca6`, applies the
+SDK-owned build-only `open_how` initializer patch required by that revision,
+waits for native startup, runs `mix test --only integration`, and removes the
+container. The patch does not touch protocol or server behavior. Set
+`FERRICSTORE_TEST_IMAGE` to test a prebuilt compatible image instead.
 
 Use `FERRICSTORE_TEST_PORT` when the local port is different:
 
@@ -32,10 +35,16 @@ FERRICSTORE_TEST_PORT=6389 scripts/test_integration.sh
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix credo --strict
-mix test --exclude integration
+mix test --cover --exclude integration
+mix run bench/sdk_hot_path_benchmark.exs \
+  --iterations 1 --frames 1000 --packet-bytes 17 --keys 1000
 mix hex.build
 scripts/test_integration.sh
 ```
+
+The coverage gate starts at 70% and is a ratchet: new code must not lower it.
+Only generated `Inspect` protocol implementations are excluded from the report.
+Raise the threshold as focused tests increase coverage.
 
 ## Testing application code
 

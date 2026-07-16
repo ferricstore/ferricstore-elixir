@@ -1,18 +1,37 @@
 defmodule FerricStore do
   @moduledoc """
-  Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
+  High-level FerricStore and FerricFlow API over the topology-aware native client.
+
+  `FerricStore.start_link/1` and `FerricStore.SDK.start_link/1` return the same
+  client type. This facade unwraps successful SDK result tuples for concise
+  application code; `FerricStore.SDK` retains explicit `{:ok, value}` results.
   """
 
   alias FerricStore.Client
+  alias FerricStore.Result
+  alias FerricStore.SDK
+
+  @spec child_spec(keyword() | binary()) :: Supervisor.child_spec()
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      restart: :permanent,
+      shutdown: :infinity,
+      type: :supervisor
+    }
+  end
 
   defdelegate start_link(opts \\ []), to: Client
   defdelegate connect!(opts \\ []), to: Client
   defdelegate close(client), to: Client
+  defdelegate close(client, timeout), to: Client
   defdelegate pipeline(client, commands, opts \\ []), to: Client
   defdelegate async_pipeline(client, commands, opts \\ []), to: Client
   defdelegate async_native(client, opcode, payload, opts \\ []), to: Client
-  defdelegate await(ref, timeout \\ 5_000), to: Client
-  defdelegate yield(ref, timeout \\ 0), to: Client
+  defdelegate await(request, timeout \\ 5_000), to: Client
+  defdelegate yield(request, timeout \\ 0), to: Client
+  defdelegate cancel_async(request), to: Client
 
   def command(client, command, args \\ [], opts \\ []) do
     Client.command(client, command, args, opts)
@@ -20,70 +39,50 @@ defmodule FerricStore do
 
   def ping(client), do: command(client, "PING")
 
-  def get(client, key),
-    do: Client.native(client, FerricStore.Protocol.opcode(:get), %{"key" => key})
+  def get(client, key), do: client |> SDK.get(key) |> Result.unwrap()
 
-  def set(client, key, value, opts \\ []) do
-    response =
-      Client.native(
-        client,
-        FerricStore.Protocol.opcode(:set),
-        %{"key" => key, "value" => value} |> put_if_present("ttl_ms", Keyword.get(opts, :ttl_ms))
-      )
+  def set(client, key, value, opts \\ []),
+    do: client |> SDK.set(key, value, opts) |> Result.unwrap()
 
-    if response == "OK", do: :ok, else: response
-  end
+  def delete(client, key_or_keys, opts \\ [])
 
-  def delete(client, keys) when is_list(keys), do: command(client, "DEL", keys)
-  def delete(client, key), do: delete(client, [key])
+  def delete(client, keys, opts) when is_list(keys),
+    do: client |> SDK.del(keys, opts) |> Result.unwrap()
 
-  def mget(client, keys),
-    do: Client.native(client, FerricStore.Protocol.opcode(:mget), %{"keys" => keys})
+  def delete(client, key, opts), do: delete(client, [key], opts)
 
-  def mset(client, pairs) when is_map(pairs), do: mset(client, Map.to_list(pairs))
+  def mget(client, keys), do: client |> SDK.mget(keys) |> Result.unwrap()
 
-  def mset(client, pairs) when is_list(pairs) do
-    Client.native(client, FerricStore.Protocol.opcode(:mset), %{
-      "pairs" => Enum.map(pairs, &kv_pair/1)
-    })
-  end
+  def mset(client, pairs, opts \\ []),
+    do: client |> SDK.mset(pairs, opts) |> Result.unwrap()
 
-  def hset(client, key, field, value), do: command(client, "HSET", [key, field, value])
-  def hget(client, key, field), do: command(client, "HGET", [key, field])
-  def hmget(client, key, fields), do: command(client, "HMGET", [key | fields])
-  def hgetall(client, key), do: command(client, "HGETALL", [key])
+  def hset(client, key, field, value),
+    do: client |> SDK.hset(key, %{field => value}) |> Result.unwrap()
 
-  def lpush(client, key, values), do: command(client, "LPUSH", [key | List.wrap(values)])
-  def rpush(client, key, values), do: command(client, "RPUSH", [key | List.wrap(values)])
-  def lpop(client, key), do: command(client, "LPOP", [key])
-  def rpop(client, key), do: command(client, "RPOP", [key])
-  def lrange(client, key, start, stop), do: command(client, "LRANGE", [key, start, stop])
+  def hget(client, key, field), do: client |> SDK.hget(key, field) |> Result.unwrap()
+  def hmget(client, key, fields), do: client |> SDK.hmget(key, fields) |> Result.unwrap()
+  def hgetall(client, key), do: client |> SDK.hgetall(key) |> Result.unwrap()
 
-  def sadd(client, key, members), do: command(client, "SADD", [key | List.wrap(members)])
-  def srem(client, key, members), do: command(client, "SREM", [key | List.wrap(members)])
-  def smembers(client, key), do: command(client, "SMEMBERS", [key])
-  def sismember(client, key, member), do: command(client, "SISMEMBER", [key, member])
+  def lpush(client, key, values), do: client |> SDK.lpush(key, values) |> Result.unwrap()
+  def rpush(client, key, values), do: client |> SDK.rpush(key, values) |> Result.unwrap()
+  def lpop(client, key), do: client |> SDK.lpop(key) |> Result.unwrap()
+  def rpop(client, key), do: client |> SDK.rpop(key) |> Result.unwrap()
 
-  def zadd(client, key, score, member), do: command(client, "ZADD", [key, score, member])
-  def zrem(client, key, members), do: command(client, "ZREM", [key | List.wrap(members)])
+  def lrange(client, key, start, stop),
+    do: client |> SDK.lrange(key, start, stop) |> Result.unwrap()
+
+  def sadd(client, key, members), do: client |> SDK.sadd(key, members) |> Result.unwrap()
+  def srem(client, key, members), do: client |> SDK.srem(key, members) |> Result.unwrap()
+  def smembers(client, key), do: client |> SDK.smembers(key) |> Result.unwrap()
+  def sismember(client, key, member), do: client |> SDK.sismember(key, member) |> Result.unwrap()
+
+  def zadd(client, key, score, member),
+    do: client |> SDK.zadd(key, [{score, member}]) |> Result.unwrap()
+
+  def zrem(client, key, members), do: client |> SDK.zrem(key, members) |> Result.unwrap()
 
   def zrange(client, key, start, stop, opts \\ []),
-    do: command(client, "ZRANGE", [key, start, stop] ++ zrange_opts(opts))
+    do: client |> SDK.zrange(key, start, stop, opts) |> Result.unwrap()
 
-  def zscore(client, key, member), do: command(client, "ZSCORE", [key, member])
-
-  defp zrange_opts(opts) do
-    []
-    |> append_flag("WITHSCORES", Keyword.get(opts, :with_scores))
-    |> append_flag("REV", Keyword.get(opts, :rev))
-  end
-
-  defp append_flag(args, _name, nil), do: args
-  defp append_flag(args, _name, false), do: args
-  defp append_flag(args, name, true), do: args ++ [name]
-  defp put_if_present(map, _key, nil), do: map
-  defp put_if_present(map, key, value), do: Map.put(map, key, value)
-
-  defp kv_pair({key, value}), do: [key, value]
-  defp kv_pair([key, value]), do: [key, value]
+  def zscore(client, key, member), do: client |> SDK.zscore(key, member) |> Result.unwrap()
 end

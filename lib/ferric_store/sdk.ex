@@ -1,17 +1,34 @@
 defmodule FerricStore.SDK do
   @moduledoc """
-  Elixir SDK entry points.
+  Topology-aware Elixir SDK entry points.
+
+  Functions in this namespace accept clients returned by either `start_link/1`
+  or `FerricStore.start_link/1`; both entry points create the same canonical
+  topology-aware client.
   """
 
   alias FerricStore.SDK.Invocation
   alias FerricStore.SDK.KV
   alias FerricStore.SDK.Management
-  alias FerricStore.SDK.Native.Client
+  alias FerricStore.SDK.Native.{Client, ClientOptions, Topology}
+
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  def child_spec(opts) when is_list(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      restart: :permanent,
+      shutdown: :infinity,
+      type: :supervisor
+    }
+  end
 
   def start_link(opts) do
-    case Keyword.pop(opts, :url) do
-      {nil, opts} -> Client.start_link(opts)
-      {url, opts} -> Client.from_url(url, opts)
+    with {:ok, {url, opts}} <- ClientOptions.take_url(opts) do
+      case url do
+        nil -> Client.start_link(opts)
+        url -> Client.from_url(url, opts)
+      end
     end
   end
 
@@ -19,6 +36,7 @@ defmodule FerricStore.SDK do
   defdelegate ping(client, message \\ "PONG", opts \\ []), to: Client
   defdelegate command_exec(client, command, args \\ [], opts \\ []), to: Client
   defdelegate close(client), to: Client
+  defdelegate close(client, timeout), to: Client
   defdelegate request(client, opcode, payload \\ %{}, opts \\ []), to: Client
   defdelegate request_by_key(client, opcode, key, payload, opts \\ []), to: Client
   defdelegate request_by_keys(client, opcode, keys, payload_builder, opts \\ []), to: Client
@@ -26,15 +44,17 @@ defmodule FerricStore.SDK do
   defdelegate request_by_items(client, opcode, items, key_fun, payload_builder, opts \\ []),
     to: Client
 
-  defdelegate refresh_topology(client), to: Client
+  defdelegate refresh_topology(client, timeout \\ 5_000), to: Client
   defdelegate route(client, key), to: Client
+  @doc "Returns the client's current read-only topology snapshot."
+  @spec topology(pid()) :: Topology.t() | {:error, term()}
   defdelegate topology(client), to: Client
+  defdelegate subscribe_events(client, events \\ [], opts \\ []), to: Client
+  defdelegate unsubscribe_events(client, events \\ [], opts \\ []), to: Client
+  defdelegate await_event(client, timeout \\ 5_000), to: Client
 
   def command(client, command, args \\ [], opts \\ []) do
-    case command_exec(client, command, args, opts) do
-      {:ok, value} -> value
-      {:error, reason} -> {:error, reason}
-    end
+    command_exec(client, command, args, opts)
   end
 
   defdelegate get(client, key, opts \\ []), to: KV
@@ -48,8 +68,8 @@ defmodule FerricStore.SDK do
   defdelegate extend(client, key, owner, ttl_ms, opts \\ []), to: KV
   defdelegate ratelimit_add(client, key, window_ms, max, count \\ 1, opts \\ []), to: KV
   defdelegate fetch_or_compute(client, key, ttl_ms, opts \\ []), to: KV
-  defdelegate fetch_or_compute_result(client, key, value, ttl_ms, opts \\ []), to: KV
-  defdelegate fetch_or_compute_error(client, key, message, opts \\ []), to: KV
+  defdelegate fetch_or_compute_result(client, key, token, value, ttl_ms, opts \\ []), to: KV
+  defdelegate fetch_or_compute_error(client, key, token, message, opts \\ []), to: KV
   defdelegate hset(client, key, fields, opts \\ []), to: KV
   defdelegate hget(client, key, field, opts \\ []), to: KV
   defdelegate hmget(client, key, fields, opts \\ []), to: KV

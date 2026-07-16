@@ -4,4 +4,6 @@ defmodule FerricStore.Error do
   """
 
   defexception [:message, :status, :raw]
+
+  @type t :: %__MODULE__{message: binary(), status: atom() | nil, raw: term()}
 end

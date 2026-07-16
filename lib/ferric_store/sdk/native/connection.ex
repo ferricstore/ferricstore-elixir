@@ -3,332 +3,166 @@ defmodule FerricStore.SDK.Native.Connection do
 
   use GenServer
 
-  alias FerricStore.SDK.Native.Codec
+  alias FerricStore.SDK.Native.{
+    ConnectionClient,
+    ConnectionDrain,
+    ConnectionInfoRuntime,
+    ConnectionInitializer,
+    ConnectionPending,
+    ConnectionRequest,
+    ConnectionShutdown,
+    ConnectionTimers,
+    FlowControl
+  }
+
+  alias FerricStore.Transport.{FrameLimits, FrameStream, ServerFrameAssembler}
 
   @default_timeout 5_000
-  @max_frame_bytes 16 * 1024 * 1024
-  @max_unmatched_buffer_bytes 64 * 1024
+  @default_max_pipeline_commands FlowControl.default_max_pipeline_commands()
+  @max_response_chunk_frames FrameLimits.max_response_chunk_frames()
 
-  defstruct [:socket, :transport, :endpoint, next_request_id: 1, buffer: ""]
+  @derive {Inspect, except: [:endpoint, :buffer, :pending, :server_frame_assembler]}
+  defstruct [
+    :socket,
+    :transport,
+    :endpoint,
+    :encoder,
+    :event_handler,
+    next_request_id: 1,
+    buffer: %FrameStream{},
+    pending: %{},
+    pending_targets: %{},
+    pending_lanes: %{},
+    data_in_flight: 0,
+    response_chunk_bytes: 0,
+    response_chunk_frames: 0,
+    decode: nil,
+    server_frame_assembler: %ServerFrameAssembler{},
+    max_frame_bytes: 16 * 1024 * 1024,
+    configured_max_request_bytes: 16 * 1024 * 1024,
+    max_request_bytes: 16 * 1024 * 1024,
+    max_response_bytes: 64 * 1024 * 1024,
+    max_response_buffer_bytes: 64 * 1024 * 1024,
+    max_response_chunk_frames: @max_response_chunk_frames,
+    configured_max_in_flight: 256,
+    configured_max_in_flight_per_lane: 256,
+    max_in_flight: 256,
+    max_in_flight_per_lane: 256,
+    max_pipeline_commands: @default_max_pipeline_commands,
+    drain: %{active: false, timeout: 5_000, timer: nil, token: nil},
+    heartbeat_interval: 30_000,
+    heartbeat_timeout: 5_000,
+    heartbeat_timer: nil,
+    heartbeat_token: nil
+  ]
 
   @spec start_link(map()) :: GenServer.on_start()
   def start_link(endpoint), do: GenServer.start_link(__MODULE__, endpoint)
 
+  def child_spec(endpoint) do
+    %{
+      id: {__MODULE__, make_ref()},
+      start: {__MODULE__, :start_link, [endpoint]},
+      restart: :temporary,
+      type: :worker
+    }
+  end
+
   @spec start(map()) :: GenServer.on_start()
   def start(endpoint), do: GenServer.start(__MODULE__, endpoint)
 
-  @spec request(pid(), non_neg_integer(), map(), non_neg_integer(), timeout()) ::
-          {:ok, term()} | {:error, term()}
-  def request(pid, opcode, payload, lane_id, timeout \\ @default_timeout) do
-    GenServer.call(pid, {:request, opcode, payload, lane_id, timeout}, timeout + 1_000)
-  end
+  def close(pid), do: ConnectionClient.close(pid)
+
+  def request(pid, opcode, payload, lane_id, timeout \\ @default_timeout),
+    do: ConnectionClient.request(pid, opcode, payload, lane_id, timeout)
+
+  def complete_bootstrap(pid, startup, timeout \\ @default_timeout),
+    do: ConnectionClient.complete_bootstrap(pid, startup, timeout)
+
+  def capacity(pid, timeout \\ @default_timeout), do: ConnectionClient.capacity(pid, timeout)
+
+  def async_request(pid, reply_to, tag, opcode, payload, lane_id, timeout \\ @default_timeout),
+    do: ConnectionClient.async_request(pid, reply_to, tag, opcode, payload, lane_id, timeout)
+
+  def cancel(pid, reply_to, tag, timeout \\ @default_timeout),
+    do: ConnectionClient.cancel(pid, reply_to, tag, timeout)
+
+  def cancel_async(pid, reply_to, tag), do: ConnectionClient.cancel_async(pid, reply_to, tag)
+  def drain(pid), do: ConnectionClient.drain(pid)
+  def abort(pid, reason), do: ConnectionClient.abort(pid, reason)
 
   @impl true
-  def init(endpoint) do
-    case connect(endpoint) do
-      {:ok, transport, socket} ->
-        {:ok, %__MODULE__{socket: socket, transport: transport, endpoint: endpoint}}
+  def init(endpoint), do: ConnectionInitializer.run(endpoint, __MODULE__)
 
-      {:error, reason} ->
-        {:stop, reason}
+  @impl true
+  def handle_call({:complete_bootstrap, startup}, _from, state) do
+    next_state =
+      state
+      |> FlowControl.apply_server_capabilities(startup)
+      |> ConnectionTimers.schedule_heartbeat()
+
+    {:reply, :ok, next_state}
+  end
+
+  def handle_call(:capacity, _from, state) do
+    capacity = %{
+      max_in_flight: state.max_in_flight,
+      max_in_flight_per_lane: state.max_in_flight_per_lane
+    }
+
+    {:reply, capacity, state}
+  end
+
+  def handle_call({:request, opcode, payload, lane_id, timeout, deadline}, from, state) do
+    case ConnectionRequest.submit(
+           state,
+           {:call, from},
+           opcode,
+           payload,
+           lane_id,
+           timeout,
+           deadline
+         ) do
+      {:ok, next_state} -> {:noreply, next_state}
+      {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
     end
   end
 
-  @impl true
-  def handle_call({:request, opcode, payload, lane_id, timeout}, _from, state) do
-    request_id = state.next_request_id
-    frame = Codec.encode_frame(opcode, lane_id, request_id, payload)
-
-    case send_frame(state.transport, state.socket, frame) do
-      :ok ->
-        await_request_response(state, opcode, request_id, timeout)
-
-      {:error, reason} ->
-        next_state = %{state | next_request_id: request_id + 1}
-        error = {:send_failed, reason}
-
-        if connection_failure?(reason) do
-          {:stop, :normal, {:error, error}, next_state}
-        else
-          {:reply, {:error, error}, next_state}
-        end
-    end
+  def handle_call({:cancel, reply_to, tag}, _from, state) do
+    state = ConnectionPending.cancel_target(state, {:message, reply_to, tag})
+    {:reply, :ok, ConnectionDrain.maybe_stop(state)}
   end
 
-  defp await_request_response(state, opcode, request_id, timeout) do
-    case await_response(state, opcode, request_id, timeout) do
-      {:ok, value, next_state} ->
-        {:reply, {:ok, value}, %{next_state | next_request_id: request_id + 1}}
+  @impl true
+  def handle_cast(
+        {:async_request, reply_to, tag, opcode, payload, lane_id, timeout, deadline},
+        state
+      ) do
+    target = {:message, reply_to, tag}
+
+    case ConnectionRequest.submit(state, target, opcode, payload, lane_id, timeout, deadline) do
+      {:ok, next_state} ->
+        {:noreply, next_state}
 
       {:error, reason, next_state} ->
-        next_state = %{next_state | next_request_id: request_id + 1}
-
-        if connection_failure?(reason) do
-          {:stop, :normal, {:error, reason}, next_state}
-        else
-          {:reply, {:error, reason}, next_state}
-        end
-
-      {:error, reason} ->
-        if connection_failure?(reason) do
-          {:stop, :normal, {:error, reason}, state}
-        else
-          {:reply, {:error, reason}, state}
-        end
-
-      {status, value} when status in [:auth, :noperm, :busy, :reroute, :bad_request] ->
-        {:reply, {:error, {status, value}}, state}
+        ConnectionPending.reply(target, {:error, reason})
+        {:noreply, next_state}
     end
   end
 
-  defp connect(%{tls: true} = endpoint) do
-    host = String.to_charlist(endpoint.host)
-    port = Map.get(endpoint, :native_tls_port) || endpoint.native_port
-
-    case :ssl.connect(
-           host,
-           port,
-           tls_options(endpoint),
-           endpoint[:connect_timeout] || @default_timeout
-         ) do
-      {:ok, socket} -> {:ok, :ssl, socket}
-      {:error, reason} -> {:error, reason}
-    end
+  def handle_cast({:cancel, reply_to, tag}, state) do
+    state = ConnectionPending.cancel_target(state, {:message, reply_to, tag})
+    {:noreply, ConnectionDrain.maybe_stop(state)}
   end
 
-  defp connect(endpoint) do
-    host = String.to_charlist(endpoint.host)
-    opts = [:binary, active: false, packet: :raw, nodelay: true]
+  def handle_cast(:drain, state), do: {:noreply, ConnectionDrain.begin(state)}
 
-    case :gen_tcp.connect(
-           host,
-           endpoint.native_port,
-           opts,
-           endpoint[:connect_timeout] || @default_timeout
-         ) do
-      {:ok, socket} -> {:ok, :gen_tcp, socket}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc false
-  @spec tls_options(map()) :: keyword()
-  def tls_options(endpoint) do
-    base = [mode: :binary, active: false, packet: :raw]
-
-    if tls_verify?(endpoint) do
-      host = Map.get(endpoint, :server_name) || endpoint.host
-
-      base
-      |> Keyword.merge(
-        verify: :verify_peer,
-        server_name_indication: String.to_charlist(host),
-        customize_hostname_check: [
-          match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-        ]
-      )
-      |> put_ca_options(endpoint)
-    else
-      Keyword.merge(base, verify: :verify_none)
-    end
-  end
-
-  defp await_response(state, opcode, request_id, timeout) do
-    deadline = System.monotonic_time(:millisecond) + timeout
-    do_await_response(state, opcode, request_id, deadline)
-  end
-
-  defp do_await_response(state, opcode, request_id, deadline) do
-    case next_matching_response(state.buffer, opcode, request_id) do
-      {:ok, value, rest} ->
-        {:ok, value, %{state | buffer: rest}}
-
-      {:error, reason, rest} ->
-        {:error, reason, %{state | buffer: rest}}
-
-      {:need_more, rest} ->
-        remaining = deadline - System.monotonic_time(:millisecond)
-        next_state = %{state | buffer: rest}
-
-        await_more_bytes(next_state, opcode, request_id, deadline, remaining)
-    end
-  end
-
-  defp await_more_bytes(_state, _opcode, _request_id, _deadline, remaining) when remaining <= 0,
-    do: {:error, :timeout}
-
-  defp await_more_bytes(state, opcode, request_id, deadline, remaining) do
-    case recv_frame(state.transport, state.socket, remaining) do
-      {:ok, bytes} ->
-        do_await_response(
-          %{state | buffer: state.buffer <> bytes},
-          opcode,
-          request_id,
-          deadline
-        )
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp next_matching_response(buffer, opcode, request_id) do
-    case Codec.decode_frames(buffer, @max_frame_bytes) do
-      {:ok, [], _rest} ->
-        {:need_more, buffer}
-
-      {:ok, frames, rest} ->
-        case matching_logical_response(frames, opcode, request_id) do
-          :need_more ->
-            {:need_more, preserve_unmatched_frames(frames, nil, rest)}
-
-          {:ok, matched, flags, body} ->
-            rest = preserve_unmatched_frames(frames, matched, rest)
-            decode_matched_response(opcode, flags, body, rest)
-        end
-
-      {:error, reason} ->
-        {:error, reason, ""}
-    end
-  end
-
-  defp decode_matched_response(opcode, flags, body, rest) do
-    case Codec.decode_response(opcode, flags, body) do
-      {:ok, value} -> {:ok, value, rest}
-      {:error, reason} -> {:error, reason, rest}
-      {status, value} -> {:error, {status, value}, rest}
-    end
-  end
-
-  defp matching_logical_response(frames, opcode, request_id) do
-    matching =
-      Enum.filter(frames, fn {_lane, frame_opcode, frame_request_id, _flags, _body, _raw} ->
-        frame_opcode == opcode and frame_request_id == request_id
-      end)
-
-    case matching do
-      [] ->
-        :need_more
-
-      [{_lane, ^opcode, ^request_id, flags, body, _raw} = frame | rest] ->
-        if Codec.more_chunks?(flags) do
-          reassemble_chunks([frame | rest])
-        else
-          {:ok, [frame], flags, body}
-        end
-    end
-  end
-
-  defp reassemble_chunks(frames) do
-    Enum.reduce_while(frames, {[], 0}, fn
-      {_lane, _opcode, _request_id, flags, _body, _raw} = frame, {matched, acc_flags} ->
-        next_matched = [frame | matched]
-        next_flags = Bitwise.bor(acc_flags, flags)
-
-        if Codec.more_chunks?(flags) do
-          {:cont, {next_matched, next_flags}}
-        else
-          {:halt, finish_chunk_reassembly(next_matched, next_flags)}
-        end
-    end)
-    |> case do
-      {:ok, _matched, _flags, _body} = ok -> ok
-      {_pending, _flags} -> :need_more
-    end
-  end
-
-  defp finish_chunk_reassembly(matched, flags) do
-    matched = Enum.reverse(matched)
-
-    body =
-      matched
-      |> Enum.map(fn {_lane, _opcode, _request_id, _flags, chunk, _raw} -> chunk end)
-      |> IO.iodata_to_binary()
-
-    {:ok, matched, Bitwise.band(flags, Bitwise.bnot(0x20)), body}
-  end
+  def handle_cast({:abort, reason}, state),
+    do: {:stop, :normal, ConnectionRequest.fail_pending(state, reason)}
 
   @impl true
-  def terminate(_reason, state) do
-    close_socket(state)
-    :ok
-  end
+  def handle_info(message, state), do: ConnectionInfoRuntime.handle(message, state)
 
-  defp preserve_unmatched_frames(frames, matched, rest) do
-    limit = max(@max_unmatched_buffer_bytes - byte_size(rest), 0)
-
-    raw_frames =
-      frames
-      |> Enum.reject(&matched_frame?(&1, matched))
-      |> Enum.map(fn {_lane, _opcode, _request_id, _flags, _body, raw} -> raw end)
-      |> keep_raw_frames_within_limit(limit)
-
-    IO.iodata_to_binary([raw_frames, rest])
-  end
-
-  defp matched_frame?(_frame, nil), do: false
-  defp matched_frame?(frame, matched) when is_list(matched), do: frame in matched
-  defp matched_frame?(frame, matched), do: frame == matched
-
-  defp keep_raw_frames_within_limit(raw_frames, limit) do
-    raw_frames
-    |> Enum.reverse()
-    |> Enum.reduce_while({[], 0}, fn raw, {acc, size} ->
-      next_size = size + byte_size(raw)
-
-      if next_size <= limit do
-        {:cont, {[raw | acc], next_size}}
-      else
-        {:halt, {acc, size}}
-      end
-    end)
-    |> elem(0)
-  end
-
-  defp tls_verify?(endpoint) do
-    not (Map.get(endpoint, :verify) == false or Map.get(endpoint, "verify") == false or
-           Map.get(endpoint, :tls_verify) == false or Map.get(endpoint, "tls_verify") == false)
-  end
-
-  defp put_ca_options(opts, endpoint) do
-    cond do
-      cacertfile = Map.get(endpoint, :cacertfile) || Map.get(endpoint, "cacertfile") ->
-        Keyword.put(opts, :cacertfile, cacertfile)
-
-      cacerts = Map.get(endpoint, :cacerts) || Map.get(endpoint, "cacerts") ->
-        Keyword.put(opts, :cacerts, cacerts)
-
-      function_exported?(:public_key, :cacerts_get, 0) ->
-        Keyword.put(opts, :cacerts, :public_key.cacerts_get())
-
-      true ->
-        opts
-    end
-  end
-
-  defp connection_failure?(reason)
-       when reason in [:closed, :econnreset, :econnrefused, :enetdown],
-       do: true
-
-  defp connection_failure?({:tls_alert, _alert}), do: true
-  defp connection_failure?(_reason), do: false
-
-  defp close_socket(%{socket: nil}), do: :ok
-
-  defp close_socket(%{transport: transport, socket: socket}) do
-    close_transport(transport, socket)
-  rescue
-    _ -> :ok
-  catch
-    _, _ -> :ok
-  end
-
-  defp send_frame(:gen_tcp, socket, frame), do: :gen_tcp.send(socket, frame)
-  defp send_frame(:ssl, socket, frame), do: :ssl.send(socket, frame)
-
-  defp recv_frame(:gen_tcp, socket, timeout), do: :gen_tcp.recv(socket, 0, timeout)
-  defp recv_frame(:ssl, socket, timeout), do: :ssl.recv(socket, 0, timeout)
-
-  defp close_transport(:gen_tcp, socket), do: :gen_tcp.close(socket)
-  defp close_transport(:ssl, socket), do: :ssl.close(socket)
+  @impl true
+  def terminate(_reason, state), do: ConnectionShutdown.run(state)
 end

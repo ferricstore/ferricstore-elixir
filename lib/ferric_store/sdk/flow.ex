@@ -7,7 +7,12 @@ defmodule FerricStore.SDK.Flow do
   aggregate commands use the control connection.
   """
 
-  alias FerricStore.SDK.Native.{Client, Opcodes}
+  alias FerricStore.Flow.PolicyCommand
+  alias FerricStore.FlowRouting
+  alias FerricStore.Protocol.Opcodes
+  alias FerricStore.RequestContext
+  alias FerricStore.SDK.Native.PreparedRequests
+  alias FerricStore.Types
 
   @flow_commands [
     create: :flow_create,
@@ -84,55 +89,87 @@ defmodule FerricStore.SDK.Flow do
     budget_commit: :flow_budget_commit,
     budget_release: :flow_budget_release
   ]
+  @opcodes Map.new(@flow_commands, fn {function, opcode_name} ->
+             {function, Opcodes.fetch!(opcode_name)}
+           end)
 
-  @key_fields [
-    "partition_key",
-    "id",
-    "owner_flow_id",
-    "parent_id",
-    "root_id",
-    "correlation_id",
-    "scope"
-  ]
-
-  for {function, opcode_name} <- @flow_commands do
-    def unquote(function)(client, payload \\ %{}, opts \\ []) when is_map(payload) do
+  for {function, opcode_name} <- @flow_commands,
+      function not in [:policy_set, :policy_get] do
+    def unquote(function)(client, payload \\ %{}, opts \\ []) do
       request(client, unquote(opcode_name), payload, opts)
     end
   end
 
-  @spec request(GenServer.server(), non_neg_integer() | atom() | binary(), map(), keyword()) ::
-          {:ok, term()} | {:error, term()}
-  def request(client, opcode, payload, opts \\ []) when is_map(payload) do
-    payload = stringify_keys(payload)
+  def policy_set(client, payload \\ %{}, opts \\ []) do
+    with :ok <- validate_payload(payload),
+         {:ok, opcode} <- Opcodes.fetch(:flow_policy_set),
+         {:ok, context} <- PreparedRequests.prepare(opts, [:key, :route_key]),
+         {:ok, payload} <- normalize_payload(payload, context),
+         {:ok, type} <- policy_type(payload),
+         {:ok, normalized} <-
+           PolicyCommand.set_payload(
+             type,
+             Map.delete(payload, "type"),
+             RequestContext.budget(context)
+           ),
+         :ok <- RequestContext.ensure_active(context) do
+      dispatch(client, opcode, normalized, opts, context)
+    end
+  end
 
-    case route_key(payload, opts) do
-      key when is_binary(key) -> Client.request_by_key(client, opcode, key, payload, opts)
-      nil -> Client.request(client, opcode, payload, opts)
+  def policy_get(client, payload \\ %{}, opts \\ []) do
+    with :ok <- validate_payload(payload),
+         {:ok, opcode} <- Opcodes.fetch(:flow_policy_get),
+         {:ok, context} <- PreparedRequests.prepare(opts, [:key, :route_key]),
+         {:ok, payload} <- normalize_payload(payload, context),
+         {:ok, type} <- policy_type(payload),
+         {:ok, normalized} <-
+           PolicyCommand.get_payload(
+             type,
+             Map.delete(payload, "type"),
+             RequestContext.budget(context)
+           ),
+         :ok <- RequestContext.ensure_active(context) do
+      dispatch(client, opcode, normalized, opts, context)
+    end
+  end
+
+  @spec request(pid(), non_neg_integer() | atom() | binary(), term(), keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def request(client, opcode, payload, opts \\ []) do
+    with :ok <- validate_payload(payload),
+         {:ok, resolved_opcode} <- Opcodes.fetch(opcode),
+         {:ok, context} <- PreparedRequests.prepare(opts, [:key, :route_key]),
+         {:ok, payload} <- normalize_payload(payload, context) do
+      dispatch(client, resolved_opcode, payload, opts, context)
+    end
+  end
+
+  defp dispatch(client, opcode, payload, opts, context) do
+    case FlowRouting.resolve_payload(opcode, payload, opts, RequestContext.budget(context)) do
+      {:ok, key} ->
+        PreparedRequests.request_by_key(client, opcode, key, payload, context)
+
+      :none ->
+        PreparedRequests.request(client, opcode, payload, context)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   @spec opcodes() :: map()
-  def opcodes do
-    Map.new(@flow_commands, fn {function, opcode_name} ->
-      {function, Opcodes.fetch!(opcode_name)}
-    end)
-  end
+  def opcodes, do: @opcodes
 
-  defp route_key(payload, opts) do
-    case Keyword.get(opts, :route_key) do
-      key when is_binary(key) -> key
-      _other -> Enum.find_value(@key_fields, &payload[&1])
-    end
-  end
+  defp validate_payload(payload) when is_map(payload), do: :ok
+  defp validate_payload(payload), do: invalid_payload(payload)
 
-  defp stringify_keys(map) when is_map(map) do
-    Map.new(map, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), stringify_keys(value)}
-      {key, value} -> {key, stringify_keys(value)}
-    end)
-  end
+  defp normalize_payload(payload, context),
+    do: Types.normalize_map_keys_result(payload, RequestContext.budget(context))
 
-  defp stringify_keys(values) when is_list(values), do: Enum.map(values, &stringify_keys/1)
-  defp stringify_keys(value), do: value
+  defp invalid_payload(payload),
+    do: {:error, {:invalid_flow_payload, %{reason: :expected_map, value: payload}}}
+
+  defp policy_type(%{"type" => type}) when is_binary(type) and type != "", do: {:ok, type}
+  defp policy_type(payload), do: {:error, {:invalid_flow_type, Map.get(payload, "type")}}
 end

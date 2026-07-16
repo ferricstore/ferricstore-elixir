@@ -2,10 +2,37 @@
 
 Local comparison against the Python SDK on the same Docker server.
 
+## Client-only hot paths
+
+Use the offline benchmark after changing frame buffering, response aggregation,
+or connection dispatch. It measures fragmented frame append/decode, request
+encoding, trusted-MGET preparation plus ordered reconstruction, and compact
+MSET preparation across a 16-shard topology without needing a FerricStore
+server. The fake coordinator reverses shard responses so the benchmark cannot
+accidentally use the dense single-group shortcut:
+
+```bash
+mix run bench/sdk_hot_path_benchmark.exs \
+  --iterations 5 \
+  --frames 10000 \
+  --body-bytes 32 \
+  --packet-bytes 1337 \
+  --keys 10000
+```
+
+CI also supplies maximum average latency and reduction budgets for frame
+append/decode, bounded request encoding, MGET admission/reconstruction, and
+MSET preparation. The benchmark exits non-zero when any budget is exceeded, so
+the smoke workload is a performance regression gate rather than output-only
+instrumentation. The MSET workload uses unrelated keys and therefore exercises
+the canonical per-slot grouping policy, including the cost of many small slot
+groups; it does not use the removed shard-level atomicity mode.
+
 Environment:
 
 - Client: local macOS
-- Server: Docker `ghcr.io/ferricstore/ferricstore:0.7.5`
+- Server: Docker image built from FerricStore commit
+  `be3bd85dedc57b2fd787dcc224e4de90bb660ca6`
 - Protocol: native `ferric://`
 - Server URL: `ferric://127.0.0.1:6398`
 - Protected mode disabled for local benchmark only
@@ -13,12 +40,15 @@ Environment:
 Server:
 
 ```bash
+FERRICSTORE_TEST_IMAGE=ferricstore-sdk-contract \
+  scripts/build_integration_server.sh
+
 docker run --rm \
   -e FERRICSTORE_PROTECTED_MODE=false \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6398 \
   -p 6398:6388 \
-  ghcr.io/ferricstore/ferricstore:0.7.5
+  ferricstore-sdk-contract
 ```
 
 ## KV throughput

@@ -1,9 +1,32 @@
 # Client API
 
-The SDK has one native protocol client and four convenience layers.
+The SDK exposes one topology-aware native client through two interchangeable
+facades:
+
+- `FerricStore.start_link/1` provides concise unwrapped success values for
+  `FerricStore`, `FerricStore.Flow`, `FerricStore.Queue`, and
+  `FerricStore.Workflow`.
+- `FerricStore.SDK.start_link/1` exposes explicit `{:ok, value}` results for the
+  `KV`, `Flow`, `Admin`, `Management`, and `Invocation` helpers.
+
+Both functions return `FerricStore.SDK.Native.Client`; one client can be shared
+across every namespace. The runtime client is a pid; registered-name and
+`{:via, ...}` client identifiers are not supported.
 
 ```elixir
 {:ok, client} = FerricStore.start_link(url: "ferric://127.0.0.1:6388")
+```
+
+All three public entry points (`FerricStore`, `FerricStore.Client`, and
+`FerricStore.SDK`) expose `child_spec/1`, so applications can place the client
+directly in a supervision tree:
+
+```elixir
+children = [
+  {FerricStore, url: "ferric://127.0.0.1:6388"}
+]
+
+Supervisor.start_link(children, strategy: :one_for_one)
 ```
 
 ## `FerricStore`
@@ -13,21 +36,20 @@ General client and KV/data-structure helpers.
 | Area | Functions |
 | --- | --- |
 | Lifecycle | `start_link/1`, `connect!/1`, `close/1` |
-| Native control | `command/4`, `pipeline/3`, `async_pipeline/3`, `async_native/4`, `await/2`, `yield/2` |
+| Native control | `command/4`, `pipeline/3`, `async_pipeline/3`, `async_native/4`, `await/2`, `yield/2`, `cancel_async/1` |
 | KV | `get/2`, `set/4`, `delete/2`, `mget/2`, `mset/2` |
 | Hash | `hset/4`, `hget/3`, `hmget/3`, `hgetall/2` |
 | List | `lpush/3`, `rpush/3`, `lpop/2`, `rpop/2`, `lrange/4` |
 | Set | `sadd/3`, `srem/3`, `smembers/2`, `sismember/3` |
 | Sorted set | `zadd/4`, `zrem/3`, `zrange/5`, `zscore/3` |
-| Management | `FerricStore.SDK.capabilities/2`, ACL, namespace, quota, and telemetry delegates |
 
 Examples:
 
 ```elixir
-:ok = FerricStore.set(client, "k", "v", ttl_ms: 60_000)
+:ok = FerricStore.set(client, "k", "v", ttl: 60_000)
 "v" = FerricStore.get(client, "k")
 
-"OK" = FerricStore.mset(client, %{"a" => "1", "b" => "2"})
+:ok = FerricStore.mset(client, %{"a" => "1", "b" => "2"})
 ["1", "2", nil] = FerricStore.mget(client, ["a", "b", "missing"])
 ```
 
@@ -118,10 +140,11 @@ Top-level `FerricStore.SDK` delegates are also available with `acl_*`,
 namespace, quota, and telemetry names.
 
 ```elixir
-{:ok, caps} = FerricStore.SDK.capabilities(client)
+{:ok, sdk} = FerricStore.SDK.start_link(url: "ferric://127.0.0.1:6388")
+{:ok, caps} = FerricStore.SDK.capabilities(sdk)
 
 if caps["namespace_management"] do
-  FerricStore.SDK.ensure_namespace(client, "tenant:acme", flow_count: 100)
+  FerricStore.SDK.ensure_namespace(sdk, "tenant:acme", flow_count: 100)
 end
 ```
 
@@ -133,3 +156,12 @@ FerricStore.command(client, "FLOW.GET", ["flow-1", "PAYLOAD"])
 
 Prefer typed helpers when available. Use `command/4` for advanced or newly added
 server commands before the SDK grows a dedicated wrapper.
+
+The high-level facade unwraps successful values. The `FerricStore.SDK` facade,
+including `FerricStore.SDK.command/4`, consistently returns explicit
+`{:ok, value}` or `{:error, reason}` tuples.
+
+High-level failures consistently return `{:error, %FerricStore.Error{}}`; the
+original SDK reason remains available in `error.raw`. SDK namespaces keep raw
+error reasons for callers that need protocol-level matching. Successful SDK
+writes use `{:ok, :ok}` rather than a bare `:ok`.

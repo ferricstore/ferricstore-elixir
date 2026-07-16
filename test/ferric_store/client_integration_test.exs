@@ -1,9 +1,9 @@
 defmodule FerricStore.ClientIntegrationTest do
   use ExUnit.Case, async: false
 
+  alias FerricStore.Protocol.Opcodes
   alias FerricStore.SDK
   alias FerricStore.SDK.{Admin, Flow}
-  alias FerricStore.SDK.Native.Opcodes
 
   @moduletag :integration
   @docker_url System.get_env("FERRICSTORE_TEST_URL", "ferric://127.0.0.1:6388")
@@ -25,9 +25,12 @@ defmodule FerricStore.ClientIntegrationTest do
     assert hello["protocol"] == "ferricstore-native"
 
     assert {:error, auth_error} =
-             SDK.request(client, :auth, %{"username" => "default", "password" => ""})
+             SDK.request(client, :auth, %{
+               "username" => unique("missing-auth-user"),
+               "password" => "wrong"
+             })
 
-    assert_error_message(auth_error, "no password")
+    assert_error_message(auth_error, "WRONGPASS")
 
     assert {:ok, startup} =
              SDK.request(client, :startup, %{"client_name" => unique("sdk-startup")})
@@ -75,10 +78,10 @@ defmodule FerricStore.ClientIntegrationTest do
     key = same_slot_key(tag, "one")
     other_key = same_slot_key(tag, "two")
 
-    assert :ok = SDK.set(client, key, "value")
+    assert {:ok, :ok} = SDK.set(client, key, "value")
     assert {:ok, "value"} = SDK.get(client, key)
 
-    assert :ok = SDK.mset(client, %{key => "value-2", other_key => "other"})
+    assert {:ok, :ok} = SDK.mset(client, %{key => "value-2", other_key => "other"})
 
     assert {:ok, ["value-2", "other", nil]} =
              SDK.mget(client, [key, other_key, same_slot_key(tag, "missing")])
@@ -97,13 +100,28 @@ defmodule FerricStore.ClientIntegrationTest do
     assert is_list(ratelimit) or is_map(ratelimit)
 
     compute_key = same_slot_key(tag, "compute")
-    assert {:ok, ["compute", _token]} = SDK.fetch_or_compute(client, compute_key, 60_000)
-    assert :ok = SDK.fetch_or_compute_result(client, compute_key, "computed", 60_000)
+
+    assert {:ok, ["compute", _hint, compute_token]} =
+             SDK.fetch_or_compute(client, compute_key, 60_000)
+
+    assert {:ok, :ok} =
+             SDK.fetch_or_compute_result(
+               client,
+               compute_key,
+               compute_token,
+               "computed",
+               60_000
+             )
+
     assert {:ok, ["hit", "computed"]} = SDK.fetch_or_compute(client, compute_key, 60_000)
 
     failed_compute_key = same_slot_key(tag, "compute-error")
-    assert {:ok, ["compute", _token]} = SDK.fetch_or_compute(client, failed_compute_key, 60_000)
-    assert :ok = SDK.fetch_or_compute_error(client, failed_compute_key, "failed")
+
+    assert {:ok, ["compute", _hint, error_token]} =
+             SDK.fetch_or_compute(client, failed_compute_key, 60_000)
+
+    assert {:ok, :ok} =
+             SDK.fetch_or_compute_error(client, failed_compute_key, error_token, "failed")
 
     hash_key = same_slot_key(tag, "hash")
 
@@ -136,8 +154,7 @@ defmodule FerricStore.ClientIntegrationTest do
     zset_key = same_slot_key(tag, "zset")
     assert {:ok, _} = SDK.zadd(client, zset_key, [{1, "a"}, {2, "b"}])
     assert {:ok, ["a", "b"]} = SDK.zrange(client, zset_key, 0, -1)
-    assert {:ok, score} = SDK.zscore(client, zset_key, "a")
-    assert score in [1, 1.0, "1", "1.0"]
+    assert {:ok, 1.0} = SDK.zscore(client, zset_key, "a")
     assert {:ok, _} = SDK.zrem(client, zset_key, "a")
     assert {:ok, ["b"]} = SDK.zrange(client, zset_key, 0, -1)
 
@@ -147,7 +164,7 @@ defmodule FerricStore.ClientIntegrationTest do
   test "topology-aware SDK admin helpers reach Docker and classify unsafe handlers" do
     client = start_sdk_client("admin")
     key = same_slot_key(unique("sdk-admin"), "key")
-    assert :ok = SDK.set(client, key, "value")
+    assert {:ok, :ok} = SDK.set(client, key, "value")
 
     classified =
       admin_safe_invocation_cases(key)
@@ -257,7 +274,11 @@ defmodule FerricStore.ClientIntegrationTest do
     assert :ok = FerricStore.set(client, key, "value")
     assert FerricStore.get(client, key) == "value"
 
-    assert FerricStore.mset(client, %{key => "value-2", other_key => "other"}) in ["OK", :ok]
+    assert FerricStore.mset(
+             client,
+             %{key => "value-2", other_key => "other"},
+             atomicity: :per_slot
+           ) in ["OK", :ok]
 
     assert FerricStore.mget(client, [key, other_key, "#{prefix}:missing"]) == [
              "value-2",
@@ -265,7 +286,7 @@ defmodule FerricStore.ClientIntegrationTest do
              nil
            ]
 
-    assert_integer_like(FerricStore.delete(client, [key, other_key]), 2)
+    assert_integer_like(FerricStore.delete(client, [key, other_key], atomicity: :per_shard), 2)
   end
 
   test "one client multiplexes concurrent requests", %{client: client} do
@@ -363,7 +384,7 @@ defmodule FerricStore.ClientIntegrationTest do
     assert_okish(FerricStore.zadd(client, key, 2, "b"))
 
     assert FerricStore.zrange(client, key, 0, -1) == ["a", "b"]
-    assert FerricStore.zscore(client, key, "a") in [1, 1.0, "1", "1.0"]
+    assert FerricStore.zscore(client, key, "a") == 1.0
     assert_integer_like(FerricStore.zrem(client, key, "a"))
     assert FerricStore.zrange(client, key, 0, -1) == ["b"]
   end
@@ -375,13 +396,16 @@ defmodule FerricStore.ClientIntegrationTest do
     id = unique("flow")
     type = unique("type")
     worker = unique("worker")
+    partition_key = unique("partition")
 
-    ref = FerricStore.Flow.value_put(client, "large-value")
+    ref =
+      FerricStore.Flow.value_put(client, "large-value", partition_key: partition_key)
 
     assert is_binary(ref) or is_map(ref)
 
     assert FerricStore.Flow.create(client, id,
              type: type,
+             partition_key: partition_key,
              payload: "payload",
              attributes: %{tenant: "acme"},
              value_refs: %{blob: extract_ref(ref)},
@@ -389,11 +413,17 @@ defmodule FerricStore.ClientIntegrationTest do
            ) in ["OK", "QUEUED", "CREATED"]
 
     assert_value_mget(client, ref, "large-value")
-    assert is_map(FerricStore.Flow.get(client, id, payload: true))
+    assert is_map(FerricStore.Flow.get(client, id, payload: true, partition_key: partition_key))
     assert is_list(FerricStore.Flow.list(client, type: type, state: "queued", count: 10))
-    assert is_list(FerricStore.Flow.history(client, id))
 
-    [job | _] = claim_one(client, type, "queued", worker)
+    assert [{event_id, history_record} | _history] =
+             FerricStore.Flow.history(client, id, partition_key: partition_key)
+
+    assert is_binary(event_id)
+    assert history_record["id"] == id
+    assert history_record["event"] == "created"
+
+    [job | _] = claim_one(client, type, "queued", worker, partition_key: partition_key)
     assert Map.get(job, "attributes", %{})["tenant"] == "acme"
 
     assert_okish(
@@ -408,7 +438,8 @@ defmodule FerricStore.ClientIntegrationTest do
       )
     )
 
-    [processing_job | _] = claim_one(client, type, "processing", worker)
+    [processing_job | _] =
+      claim_one(client, type, "processing", worker, partition_key: partition_key)
 
     assert_okish(
       FerricStore.Flow.complete(client, id,
@@ -920,8 +951,8 @@ defmodule FerricStore.ClientIntegrationTest do
         type: type,
         state: "queued",
         partition_key: base,
-        parent_id: parent_id,
-        root_id: root_id,
+        parent_flow_id: parent_id,
+        root_flow_id: root_id,
         correlation_id: correlation_id,
         attributes: %{tenant: "acme"},
         now_ms: now_ms
@@ -1114,8 +1145,9 @@ defmodule FerricStore.ClientIntegrationTest do
     "elixir-sdk-#{prefix}-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive, :monotonic])}"
   end
 
-  defp claim_one(client, type, state, worker) do
-    jobs = FerricStore.Flow.claim_due(client, type, state: state, worker: worker, limit: 1)
+  defp claim_one(client, type, state, worker, opts \\ []) do
+    opts = Keyword.merge([state: state, worker: worker, limit: 1], opts)
+    jobs = FerricStore.Flow.claim_due(client, type, opts)
 
     assert is_list(jobs)
     assert [_job | _] = jobs

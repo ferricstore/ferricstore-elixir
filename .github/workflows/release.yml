@@ -11,20 +11,13 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    services:
-      ferricstore:
-        image: ghcr.io/ferricstore/ferricstore:0.7.5
-        env:
-          FERRICSTORE_PROTECTED_MODE: "false"
-          FERRICSTORE_NATIVE_ENABLED: "true"
-          FERRICSTORE_NATIVE_BIND: "0.0.0.0"
-          FERRICSTORE_NATIVE_PORT: "6388"
-          FERRICSTORE_NATIVE_ADVERTISE_HOST: "127.0.0.1"
-          FERRICSTORE_NATIVE_ADVERTISE_PORT: "6388"
-        ports:
-          - 6388:6388
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: ferricstore/ferricstore
+          ref: be3bd85dedc57b2fd787dcc224e4de90bb660ca6
+          path: ferricstore-server
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "29"
@@ -33,8 +26,33 @@ jobs:
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
       - run: mix credo --strict
-      - run: mix test --exclude integration
+      - run: mix test --cover --exclude integration
+      - name: Offline hot-path benchmark smoke test
+        run: >-
+          mix run bench/sdk_hot_path_benchmark.exs
+          --iterations 1 --frames 1000 --body-bytes 32
+          --packet-bytes 17 --keys 1000
+          --max-append-ms 10.0 --max-append-reductions 50000
+          --max-decode-ms 10.0 --max-decode-reductions 100000
+          --max-encode-ms 10.0 --max-encode-reductions 100000
+          --max-mget-ms 20.0 --max-mget-reductions 70000
+          --max-mset-ms 20.0 --max-mset-reductions 250000
       - run: mix hex.build
+      - name: Build the pinned compatible FerricStore server
+        run: >-
+          FERRICSTORE_SERVER_SOURCE=ferricstore-server
+          FERRICSTORE_TEST_IMAGE=ferricstore-sdk-contract
+          scripts/build_integration_server.sh
+      - name: Start FerricStore
+        run: >-
+          docker run --detach --rm --name ferricstore-sdk-contract
+          --env FERRICSTORE_PROTECTED_MODE=false
+          --env FERRICSTORE_NATIVE_ENABLED=true
+          --env FERRICSTORE_NATIVE_BIND=0.0.0.0
+          --env FERRICSTORE_NATIVE_PORT=6388
+          --env FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1
+          --env FERRICSTORE_NATIVE_ADVERTISE_PORT=6388
+          --publish 6388:6388 ferricstore-sdk-contract
       - run: |
           for i in {1..60}; do
             mix run -e 'client = FerricStore.connect!(url: "ferric://127.0.0.1:6388"); FerricStore.ping(client); FerricStore.close(client)' && exit 0
@@ -42,6 +60,9 @@ jobs:
           done
           exit 1
       - run: mix test --only integration
+      - name: Stop FerricStore
+        if: always()
+        run: docker stop ferricstore-sdk-contract || true
 
   publish:
     needs: validate

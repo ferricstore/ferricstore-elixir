@@ -1,7 +1,7 @@
-defmodule FerricStore.SDK.Native.OpcodesTest do
+defmodule FerricStore.Protocol.OpcodesTest do
   use ExUnit.Case, async: true
 
-  alias FerricStore.SDK.Native.Opcodes
+  alias FerricStore.Protocol.Opcodes
 
   test "resolves opcodes from atoms, protocol names, and integers" do
     assert {:ok, 0x0101} = Opcodes.fetch(:get)

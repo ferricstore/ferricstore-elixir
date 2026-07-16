@@ -2,7 +2,7 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public alpha `0.2.3`. APIs may change before `1.0`, but the SDK is
+Status: public alpha `0.2.4`. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
 
@@ -28,7 +28,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.2.3"}
+    {:ferricstore_sdk, "~> 0.2.4"}
   ]
 end
 ```
@@ -42,15 +42,19 @@ mix test
 
 ### 2. Start FerricStore
 
-For local development, use the Docker image:
+For local development, build server revision
+`be3bd85dedc57b2fd787dcc224e4de90bb660ca6` with the SDK helper and run it:
 
 ```bash
+FERRICSTORE_TEST_IMAGE=ferricstore-sdk-contract \
+  scripts/build_integration_server.sh
+
 docker run --rm \
   -e FERRICSTORE_PROTECTED_MODE=false \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.7.5
+  ferricstore-sdk-contract
 ```
 
 The SDK examples assume:
@@ -203,13 +207,18 @@ FerricStore.Flow.create(client, "order-3",
 )
 ```
 
-Use `FerricStore.SDK` when you want topology-aware routing from the client:
+Use `FerricStore.SDK` when you want explicit `{:ok, value}` results and the
+complete topology-aware API surface:
 
 ```elixir
 {:ok, sdk} = FerricStore.SDK.start_link(url: "ferric://127.0.0.1:6388")
-:ok = FerricStore.SDK.set(sdk, "{tenant:1}:hello", "world")
+{:ok, :ok} = FerricStore.SDK.set(sdk, "{tenant:1}:hello", "world")
 {:ok, "world"} = FerricStore.SDK.get(sdk, "{tenant:1}:hello")
 ```
+
+`FerricStore.start_link/1` and `FerricStore.SDK.start_link/1` return the same
+topology-aware client type. It can be shared across `FerricStore`,
+`FerricStore.Flow`, `Queue`, `Workflow`, and every `FerricStore.SDK` namespace.
 
 ### 10. Probe management capabilities
 
@@ -313,12 +322,15 @@ Integration tests are explicit ExUnit integration tests. They run against the
 same Docker image used by CI:
 
 ```bash
+FERRICSTORE_TEST_IMAGE=ferricstore-sdk-contract \
+  scripts/build_integration_server.sh
+
 docker run --rm \
   -e FERRICSTORE_PROTECTED_MODE=false \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.7.5
+  ferricstore-sdk-contract
 
 mix test --only integration
 ```

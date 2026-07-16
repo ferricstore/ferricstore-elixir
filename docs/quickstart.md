@@ -5,7 +5,7 @@
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.2.2"}
+    {:ferricstore_sdk, "~> 0.2.4"}
   ]
 end
 ```
@@ -16,13 +16,19 @@ mix deps.get
 
 ## Start FerricStore
 
+From an SDK checkout, build the pinned server revision
+`be3bd85dedc57b2fd787dcc224e4de90bb660ca6` with the integration helper:
+
 ```bash
+FERRICSTORE_TEST_IMAGE=ferricstore-sdk-contract \
+  scripts/build_integration_server.sh
+
 docker run --rm \
   -e FERRICSTORE_PROTECTED_MODE=false \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.7.5
+  ferricstore-sdk-contract
 ```
 
 ## Connect

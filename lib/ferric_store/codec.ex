@@ -39,5 +39,13 @@ defmodule FerricStore.Codec.Term do
   def encode(value), do: :erlang.term_to_binary(value)
 
   @impl true
-  def decode(value) when is_binary(value), do: :erlang.binary_to_term(value)
+  def decode(<<131, 80, _compressed::binary>>),
+    do: raise(ArgumentError, "compressed external terms are not accepted")
+
+  def decode(value) when is_binary(value) do
+    case :erlang.binary_to_term(value, [:safe, :used]) do
+      {term, used} when used == byte_size(value) -> term
+      {_term, _used} -> raise ArgumentError, "external term contains trailing bytes"
+    end
+  end
 end

@@ -4,12 +4,17 @@ defmodule FerricStore.MixProject do
   def project do
     [
       app: :ferricstore_sdk,
-      version: "0.2.3",
+      version: "0.2.4",
       elixir: "~> 1.20",
       description: "Official Elixir SDK for FerricStore over the native ferric:// protocol.",
+      elixirc_paths: elixirc_paths(Mix.env()),
       package: package(),
       source_url: "https://github.com/ferricstore/ferricstore-elixir",
       homepage_url: "https://github.com/ferricstore/ferricstore-elixir",
+      test_coverage: [
+        summary: [threshold: 70],
+        ignore_modules: [~r/^Inspect\.FerricStore\./]
+      ],
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -39,6 +44,9 @@ defmodule FerricStore.MixProject do
       {:jason, "~> 1.4"}
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
 
   defp package do
     [

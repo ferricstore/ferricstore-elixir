@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${FERRICSTORE_TEST_IMAGE:-ghcr.io/ferricstore/ferricstore:0.7.5}"
-CONTAINER="${FERRICSTORE_TEST_CONTAINER:-ferricstore-elixir-integration}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SERVER_REF="${FERRICSTORE_SERVER_REF:-be3bd85dedc57b2fd787dcc224e4de90bb660ca6}"
+IMAGE="${FERRICSTORE_TEST_IMAGE:-ferricstore-sdk-contract:${SERVER_REF:0:12}}"
+CONTAINER="${FERRICSTORE_TEST_CONTAINER:-ferricstore-elixir-integration-$$}"
 HOST="${FERRICSTORE_TEST_HOST:-127.0.0.1}"
 PORT="${FERRICSTORE_TEST_PORT:-6388}"
 URL="${FERRICSTORE_TEST_URL:-ferric://${HOST}:${PORT}}"
@@ -15,6 +17,12 @@ trap cleanup EXIT
 
 cleanup
 
+if [[ -z "${FERRICSTORE_TEST_IMAGE:-}" ]] && ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  FERRICSTORE_SERVER_REF="$SERVER_REF" \
+    FERRICSTORE_TEST_IMAGE="$IMAGE" \
+    "$SCRIPT_DIR/build_integration_server.sh"
+fi
+
 docker run -d --name "$CONTAINER" \
   -e FERRICSTORE_PROTECTED_MODE=false \
   -e FERRICSTORE_NATIVE_ENABLED=true \
@@ -26,12 +34,12 @@ docker run -d --name "$CONTAINER" \
   "$IMAGE" >/dev/null
 
 for _ in $(seq 1 60); do
-  if FERRICSTORE_TEST_URL="$URL" mix run -e '
+  if FERRICSTORE_TEST_URL="$URL" mise exec -- mix run -e '
     {:ok, client} = FerricStore.SDK.start_link(url: System.fetch_env!("FERRICSTORE_TEST_URL"), endpoint_policy: :any)
     {:ok, "PONG"} = FerricStore.SDK.ping(client)
     FerricStore.SDK.close(client)
   ' >/dev/null 2>&1; then
-    FERRICSTORE_TEST_URL="$URL" mix test --only integration "$@"
+    FERRICSTORE_TEST_URL="$URL" mise exec -- mix test --only integration "$@"
     exit 0
   fi
 
