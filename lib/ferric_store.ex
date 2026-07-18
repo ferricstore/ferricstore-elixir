@@ -8,6 +8,7 @@ defmodule FerricStore do
   """
 
   alias FerricStore.Client
+  alias FerricStore.Compatibility
   alias FerricStore.Result
   alias FerricStore.SDK
 
@@ -32,6 +33,7 @@ defmodule FerricStore do
   defdelegate await(request, timeout \\ 5_000), to: Client
   defdelegate yield(request, timeout \\ 0), to: Client
   defdelegate cancel_async(request), to: Client
+  defdelegate minimum_server_version(), to: Compatibility
 
   def command(client, command, args \\ [], opts \\ []) do
     Client.command(client, command, args, opts)
@@ -55,6 +57,9 @@ defmodule FerricStore do
 
   def mset(client, pairs, opts \\ []),
     do: client |> SDK.mset(pairs, opts) |> Result.unwrap()
+
+  def msetnx(client, pairs, opts \\ []),
+    do: client |> SDK.msetnx(pairs, opts) |> Result.unwrap()
 
   def hset(client, key, field, value),
     do: client |> SDK.hset(key, %{field => value}) |> Result.unwrap()

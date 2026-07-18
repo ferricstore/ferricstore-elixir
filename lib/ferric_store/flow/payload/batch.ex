@@ -57,6 +57,7 @@ defmodule FerricStore.Flow.Payload.Batch do
           |> put_if_present("idempotent", Keyword.get(opts, :idempotent))
           |> put_if_present("priority", Keyword.get(opts, :priority))
           |> put_if_present("retention_ttl_ms", Keyword.get(opts, :retention_ttl_ms))
+          |> put_if_present("max_active_ms", Keyword.get(opts, :max_active_ms))
           |> put_if_present("attributes", stringify_map(Keyword.get(opts, :attributes)))
           |> put_if_present("state_meta", stringify_nested_map(Keyword.get(opts, :state_meta)))
           |> put_if_present("values", encode_value_map(codec, Keyword.get(opts, :values)))

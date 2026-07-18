@@ -114,6 +114,21 @@ defmodule FerricStore.SDK.Native.Codec do
     end
   end
 
+  defp decode_custom_response_payload(
+         _opcode,
+         _payload,
+         %{response_plan: _response_plan, compact_codec: nil}
+       ),
+       do: {:error, :unadvertised_compact_response}
+
+  defp decode_custom_response_payload(
+         opcode,
+         payload,
+         %{response_plan: response_plan, compact_codec: codec}
+       )
+       when is_binary(codec),
+       do: Protocol.decode_compact_response_payload(opcode, payload, response_plan)
+
   defp decode_custom_response_payload(opcode, payload, response_context),
     do: Protocol.decode_compact_response_payload(opcode, payload, response_context)
 

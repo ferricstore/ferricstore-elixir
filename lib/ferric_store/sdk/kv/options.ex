@@ -13,7 +13,7 @@ defmodule FerricStore.SDK.KV.Options do
     cas: [:ttl],
     del: [:atomicity, :max_group_concurrency],
     mget: [:max_group_concurrency],
-    mset: [:atomicity, :max_group_concurrency],
+    mset: [:max_group_concurrency],
     fetch_or_compute: [:hint],
     zrange: [:withscores]
   }
@@ -35,7 +35,6 @@ defmodule FerricStore.SDK.KV.Options do
   defp validate_operation_options(:set, opts), do: validate_set(opts)
   defp validate_operation_options(:cas, opts), do: validate_cas(opts)
   defp validate_operation_options(:del, opts), do: validate_atomicity(:del, opts)
-  defp validate_operation_options(:mset, opts), do: validate_atomicity(:mset, :per_slot, opts)
 
   defp validate_operation_options(:fetch_or_compute, opts),
     do: validate_optional(opts, :hint, &Input.binary(&1, :fetch_or_compute, :hint))
@@ -75,7 +74,6 @@ defmodule FerricStore.SDK.KV.Options do
   end
 
   defp expected_policy(:per_shard), do: :expected_per_shard
-  defp expected_policy(:per_slot), do: :expected_per_slot
 
   defp validate_set_booleans(opts) do
     Enum.reduce_while(@boolean_set_options, :ok, fn key, :ok ->

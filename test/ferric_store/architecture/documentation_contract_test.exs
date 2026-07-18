@@ -12,6 +12,17 @@ defmodule FerricStore.Architecture.DocumentationContractTest do
     end
   end
 
+  test "the release declares the FerricStore 0.8 beta contract without changing wire v1" do
+    assert Mix.Project.config()[:version] == "0.3.0"
+    assert FerricStore.minimum_server_version() == "0.8.0"
+    assert FerricStore.SDK.minimum_server_version() == "0.8.0"
+    assert FerricStore.Compatibility.protocol_version() == 1
+
+    for path <- ["README.md", "docs/quickstart.md"] do
+      assert path |> then(&File.read!(Path.join(@root, &1))) =~ "FerricStore 0.8.0 or newer"
+    end
+  end
+
   test "development guidance points at the current architecture suite" do
     contents = File.read!(Path.join(@root, "docs/development.md"))
 

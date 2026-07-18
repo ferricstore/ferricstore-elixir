@@ -17,7 +17,7 @@ compatible FerricStore revision pinned by the SDK.
 scripts/test_integration.sh
 ```
 
-The script builds commit `be3bd85dedc57b2fd787dcc224e4de90bb660ca6`, applies the
+The script builds commit `72452814231f592aff051c22fdbe7114476e2879`, applies the
 SDK-owned build-only `open_how` initializer patch required by that revision,
 waits for native startup, runs `mix test --only integration`, and removes the
 container. The patch does not touch protocol or server behavior. Set

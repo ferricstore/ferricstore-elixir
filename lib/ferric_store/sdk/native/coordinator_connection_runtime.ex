@@ -114,4 +114,16 @@ defmodule FerricStore.SDK.Native.CoordinatorConnectionRuntime do
         :error
     end
   end
+
+  @spec update_capacity(State.t(), pid(), map(), function()) :: {:noreply, State.t()}
+  def update_capacity(state, connection, capacity, resume_endpoint) do
+    endpoint_key = ConnectionPool.endpoint_key(state.connection_pool, connection)
+    pool = ConnectionPool.update_capacity(state.connection_pool, connection, capacity)
+    state = %{state | connection_pool: pool}
+
+    case endpoint_key do
+      {:ok, key} -> {:noreply, resume_endpoint.(state, key)}
+      :error -> {:noreply, state}
+    end
+  end
 end

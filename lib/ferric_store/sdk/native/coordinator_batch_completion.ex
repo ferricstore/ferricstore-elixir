@@ -5,7 +5,8 @@ defmodule FerricStore.SDK.Native.CoordinatorBatchCompletion do
     BatchExecution,
     BatchRetry,
     BatchScheduler,
-    CoordinatorTimers
+    CoordinatorTimers,
+    RetryScheduler
   }
 
   alias FerricStore.SDK.Native.Coordinator.State
@@ -60,7 +61,12 @@ defmodule FerricStore.SDK.Native.CoordinatorBatchCompletion do
   defp retry(state, batch, original_reason) do
     {:ok, batch} = BatchRetry.prepare(batch, original_reason)
     scheduler = BatchScheduler.put(state.batch_scheduler, batch)
-    {:refresh, %{state | batch_scheduler: scheduler}, {:batch_retry, batch.id}}
+    state = %{state | batch_scheduler: scheduler}
+
+    case RetryScheduler.batch(batch.id, original_reason) do
+      :ready -> {:refresh, state, {:batch_retry, batch.id}}
+      :waiting -> {:ok, state}
+    end
   end
 
   defp retry_reason(batch, reason) do

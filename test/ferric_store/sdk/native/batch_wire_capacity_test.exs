@@ -94,7 +94,7 @@ defmodule FerricStore.SDK.Native.BatchWireCapacityTest do
       end)
 
     on_exit(fn -> if Process.alive?(event_caller), do: Process.exit(event_caller, :kill) end)
-    assert_receive {:native_server_request, %{opcode: 0x000C}}, 500
+    assert_receive {:native_server_request, %{opcode: 0x0001}}, 500
 
     waiting = Task.async(fn -> SDK.mget(client, [waiting_key], timeout: 750) end)
 
@@ -124,7 +124,7 @@ defmodule FerricStore.SDK.Native.BatchWireCapacityTest do
     {client, server}
   end
 
-  defp slow_startup(%{opcode: 0x000C}), do: :noreply
+  defp slow_startup(%{opcode: 0x0001}), do: :noreply
   defp slow_startup(_request), do: "OK"
 
   defp two_shard_topology(port) do

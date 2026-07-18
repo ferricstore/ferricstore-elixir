@@ -139,7 +139,8 @@ defmodule FerricStore.SDKHotPathBenchmark do
 
     keys = Enum.map(1..key_count, &"benchmark-key-#{&1}")
 
-    mset_pairs = Enum.map(keys, &{&1, "benchmark-value"})
+    mset_pairs =
+      Enum.map(1..key_count, &{"{benchmark-mset}:key-#{&1}", "benchmark-value"})
 
     {encode_us, encode_reductions, {:ok, encoded_request}} =
       measure(iterations, fn ->
@@ -157,11 +158,11 @@ defmodule FerricStore.SDKHotPathBenchmark do
     {mget_us, mget_reductions, {:ok, values}} =
       measure(iterations, fn -> KV.mget(group_client, keys) end)
 
-    {:ok, :ok} = KV.mset(group_client, mset_pairs, atomicity: :per_slot)
+    {:ok, :ok} = KV.mset(group_client, mset_pairs)
 
     {mset_us, mset_reductions, {:ok, mset_value}} =
       measure(iterations, fn ->
-        KV.mset(group_client, mset_pairs, atomicity: :per_slot)
+        KV.mset(group_client, mset_pairs)
       end)
 
     max_group_count = GenServer.call(group_client, :max_group_count)

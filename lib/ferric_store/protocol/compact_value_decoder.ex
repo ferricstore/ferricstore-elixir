@@ -90,9 +90,9 @@ defmodule FerricStore.Protocol.CompactValueDecoder do
 
   defp take_flow_record_entries(count, bytes, record, budget) when count > 0 do
     with {:ok, key, rest} <- take_flow_record_key(bytes),
-         false <- Map.has_key?(record, key),
+         false <- duplicate_field?(record, key),
          {:ok, value, rest, budget} <- ValueCodec.decode_with_budget(rest, budget) do
-      take_flow_record_entries(count - 1, rest, Map.put(record, key, value), budget)
+      take_flow_record_entries(count - 1, rest, put_field(record, key, value), budget)
     else
       true -> {:error, {:duplicate_compact_flow_field, %{bytes: duplicate_key_bytes(bytes)}}}
       {:error, _reason} = error -> error
@@ -119,11 +119,17 @@ defmodule FerricStore.Protocol.CompactValueDecoder do
   defp take_flow_record_key(<<field_id, rest::binary>>) do
     case Map.fetch(@flow_record_field_names, field_id) do
       {:ok, name} -> {:ok, name, rest}
-      :error -> {:error, {:unknown_compact_flow_field, field_id}}
+      :error -> {:ok, {:unknown_compact_flow_field, field_id}, rest}
     end
   end
 
   defp take_flow_record_key(_bytes), do: {:error, :invalid_compact_flow_field}
+
+  defp duplicate_field?(_record, {:unknown_compact_flow_field, _field_id}), do: false
+  defp duplicate_field?(record, key), do: Map.has_key?(record, key)
+
+  defp put_field(record, {:unknown_compact_flow_field, _field_id}, _value), do: record
+  defp put_field(record, key, value), do: Map.put(record, key, value)
 
   defp without_budget({:ok, value, rest, _budget}), do: {:ok, value, rest}
   defp without_budget({:error, _reason} = error), do: error

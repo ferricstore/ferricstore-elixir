@@ -62,6 +62,12 @@ defmodule FerricStore.SDK.Native.CoordinatorBatchOrchestrator do
     |> finish_transition(callbacks)
   end
 
+  def resume_retry(state, batch_id, callbacks) do
+    state
+    |> CoordinatorBatchRuntime.resume_retry(batch_id)
+    |> finish_transition(callbacks)
+  end
+
   def timeout(state, batch_id, callbacks) do
     state
     |> CoordinatorBatchRuntime.timeout(batch_id)

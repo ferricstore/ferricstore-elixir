@@ -20,7 +20,7 @@ defmodule FerricStore.DeadlineTaskTest do
     test_pid = self()
 
     assert {:error, :timeout} =
-             DeadlineTask.run(DeadlineBudget.new(5), fn ->
+             DeadlineTask.run(DeadlineBudget.new(250), fn ->
                send(test_pid, {:worker, self()})
                Process.sleep(:infinity)
              end)

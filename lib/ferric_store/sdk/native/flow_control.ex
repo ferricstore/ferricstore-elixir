@@ -2,6 +2,7 @@ defmodule FerricStore.SDK.Native.FlowControl do
   @moduledoc false
 
   alias FerricStore.Protocol.CommandSpec
+  alias FerricStore.SDK.Native.{ConnectionEncoder, ConnectionOptions, ServerResponseCodecs}
 
   @default_max_pipeline_commands 1_024
   @client_max_pipeline_commands 100_000
@@ -38,6 +39,18 @@ defmodule FerricStore.SDK.Native.FlowControl do
     flow_control = map_option(capabilities, :flow_control, %{})
     limits = map_option(capabilities, :limits, %{})
 
+    max_response_bytes =
+      cap_positive_limit(
+        ConnectionOptions.effective(state.endpoint).max_response_bytes,
+        map_option(limits, :max_response_bytes)
+      )
+
+    compact_response_codecs =
+      case ServerResponseCodecs.parse(capabilities) do
+        {:ok, codecs} -> codecs
+        {:error, _reason} -> %{}
+      end
+
     %{
       state
       | max_request_bytes:
@@ -55,7 +68,11 @@ defmodule FerricStore.SDK.Native.FlowControl do
             state.configured_max_in_flight_per_lane,
             map_option(flow_control, :max_inflight_per_lane)
           ),
-        max_pipeline_commands: pipeline_limit(map_option(limits, :max_pipeline_commands))
+        max_pipeline_commands: pipeline_limit(map_option(limits, :max_pipeline_commands)),
+        max_response_bytes: max_response_bytes,
+        encoder: ConnectionEncoder.put_response_codecs(state.encoder, compact_response_codecs),
+        server_frame_assembler:
+          Map.put(state.server_frame_assembler, :max_frame_bytes, max_response_bytes)
     }
   end
 

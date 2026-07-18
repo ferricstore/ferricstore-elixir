@@ -141,7 +141,7 @@ defmodule FerricStore.ClientBoundaryTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       %{opcode: 0x0102} -> "previous-value"
       _request -> "OK"
     end
@@ -204,7 +204,7 @@ defmodule FerricStore.ClientBoundaryTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> NativeServer.startup_payload()
+      %{opcode: 0x0001} -> NativeServer.startup_payload()
       %{opcode: 0x0101} -> :noreply
       _request -> "OK"
     end
@@ -343,7 +343,7 @@ defmodule FerricStore.ClientBoundaryTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       %{opcode: 0x0101} -> {:reply_after, 150, "late"}
       _request -> "OK"
     end
@@ -393,7 +393,7 @@ defmodule FerricStore.ClientBoundaryTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       %{opcode: 0x0101} -> {:reply_after, 40, "late-success"}
       _request -> "OK"
     end
@@ -604,7 +604,7 @@ defmodule FerricStore.ClientBoundaryTest do
       %{opcode: 0x0007} ->
         NativeServer.topology_payload(Agent.get(port_holder, & &1))
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{
           "protocol" => "ferricstore-native",
           "capabilities" => %{"limits" => %{"max_pipeline_commands" => 2}}

@@ -3,8 +3,9 @@ defmodule FerricStore.Flow.Options.NumericValueValidator do
 
   import FerricStore.Protocol.ValueDomain, only: [is_signed_64_integer: 1]
 
+  alias FerricStore.Flow.MaxActive
+
   @max_exact 9_007_199_254_740_991
-  @max_active_ms 31_536_000_000
   @max_history_hot_events 10_000
   @max_history_events 1_000_000
 
@@ -42,7 +43,7 @@ defmodule FerricStore.Flow.Options.NumericValueValidator do
     block_ms: {[:claim_due], :unsigned_32},
     history_hot_max_events: {[:create], :history_hot},
     history_max_events: {[:create], :history},
-    max_active_ms: {[:create], :max_active},
+    max_active_ms: {[:create, :create_many], :max_active},
     priority: {[:claim_due, :create, :create_many, :transition], :priority},
     reclaim_ratio: {[:claim_due], :percentage}
   }
@@ -98,10 +99,7 @@ defmodule FerricStore.Flow.Options.NumericValueValidator do
   defp valid?(:priority, value), do: is_integer(value) and value in 0..2
   defp valid?(:percentage, value), do: is_integer(value) and value in 0..100
 
-  defp valid?(:max_active, value),
-    do:
-      value in [nil, :infinity, "infinity", "INFINITY"] or
-        (is_integer(value) and value > 0 and value <= @max_active_ms)
+  defp valid?(:max_active, value), do: MaxActive.valid?(value)
 
   defp valid?(:history_hot, value),
     do: is_integer(value) and value >= 0 and value <= @max_history_hot_events

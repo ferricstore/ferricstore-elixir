@@ -11,7 +11,7 @@ defmodule FerricStore.SDK.Native.ClientAsyncRequests do
   }
 
   alias FerricStore.Protocol.Opcodes
-  alias FerricStore.SDK.Native.{ClientRequestAdmission, CoordinatorCall}
+  alias FerricStore.SDK.Native.{ClientRequestAdmission, CoordinatorCall, RouteTarget}
 
   @default_timeout 5_000
   @control_request_option_keys [:timeout, :call_timeout, :idempotent, :lane_id, :endpoint]
@@ -92,7 +92,7 @@ defmodule FerricStore.SDK.Native.ClientAsyncRequests do
       with :ok <- validate_context_options(context, @routed_request_option_keys),
            :ok <- ClientRequestAdmission.validate_external_payload(payload),
            {:ok, opcode} <- Opcodes.fetch(opcode),
-           {:ok, ^key} <- RouteKey.validate(key),
+           {:ok, ^key} <- RouteTarget.validate(key),
            {:ok, context} <- ClientRequestAdmission.prepare_context(opcode, payload, context) do
         submit_command(client, ref, opcode, key, payload, context)
       end

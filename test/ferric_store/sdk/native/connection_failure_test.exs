@@ -84,7 +84,7 @@ defmodule FerricStore.SDK.Native.ConnectionFailureTest do
   defp start_sdk_with_blocked_opcode(blocked_opcode) do
     response_fun = fn request ->
       case request.opcode do
-        0x000C ->
+        0x0001 ->
           NativeServer.startup_payload()
 
         0x0007 ->

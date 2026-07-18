@@ -6,12 +6,12 @@ defmodule FerricStore.SDK.Native.PreparedRequests do
   alias FerricStore.RequestContext
   alias FerricStore.RequestLimits
   alias FerricStore.RequestOptions
-  alias FerricStore.RouteKey
 
   alias FerricStore.SDK.Native.{
     ClientRequestAdmission,
     ClientRequests,
-    CoordinatorCall
+    CoordinatorCall,
+    RouteTarget
   }
 
   @default_timeout 5_000
@@ -78,7 +78,7 @@ defmodule FerricStore.SDK.Native.PreparedRequests do
   @spec request_by_key(
           pid(),
           non_neg_integer() | atom() | binary(),
-          binary(),
+          RouteTarget.t(),
           term(),
           RequestContext.t()
         ) :: {:ok, term()} | {:error, term()}
@@ -88,7 +88,7 @@ defmodule FerricStore.SDK.Native.PreparedRequests do
     with :ok <- validate_context_options(context, @routed_request_option_keys),
          :ok <- ClientRequestAdmission.validate_external_payload(payload),
          {:ok, opcode} <- Opcodes.fetch(opcode),
-         {:ok, ^key} <- RouteKey.validate(key),
+         {:ok, ^key} <- RouteTarget.validate(key),
          {:ok, context} <- ClientRequestAdmission.prepare_context(opcode, payload, context) do
       CoordinatorCall.submit(
         client,
@@ -113,7 +113,7 @@ defmodule FerricStore.SDK.Native.PreparedRequests do
   @spec async_request_by_key(
           pid(),
           non_neg_integer() | atom() | binary(),
-          binary(),
+          RouteTarget.t(),
           term(),
           RequestContext.t()
         ) :: reference()

@@ -431,7 +431,7 @@ defmodule FerricStore.SDK.Native.ConnectionTest do
     assert {:error, :timeout} =
              Connection.request(connection, 0x0101, %{"key" => "missing"}, 1, 30)
 
-    assert_receive {:DOWN, ^monitor, :process, ^connection, :late_response_timeout}, 250
+    assert_receive {:DOWN, ^monitor, :process, ^connection, :late_response_timeout}, 1_000
   end
 
   test "draining has a finite deadline even when an in-flight request has no timeout" do

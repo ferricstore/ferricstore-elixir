@@ -3,16 +3,14 @@ defmodule FerricStore.SDK.Native.ConnectionEncodingWorker do
 
   alias FerricStore.{FailureFormatter, Protocol}
   alias FerricStore.Protocol.ResponsePlan
+
   alias FerricStore.SDK.Native.{ConnectionEncodingTask, ConnectionTimers, PipelinePreparer}
   alias FerricStore.Transport.{RequestEncoder, SessionPolicy, Socket}
 
   @spec start(pid()) :: pid()
   def start(owner) when is_pid(owner), do: spawn_link(fn -> init(owner) end)
 
-  defp init(owner) do
-    monitor = Process.monitor(owner)
-    loop(owner, monitor)
-  end
+  defp init(owner), do: loop(owner, Process.monitor(owner))
 
   defp loop(owner, monitor) do
     receive do
@@ -38,10 +36,7 @@ defmodule FerricStore.SDK.Native.ConnectionEncodingWorker do
         notify_owner(owner, job, error)
         loop(owner, monitor)
 
-      :owner_down ->
-        :ok
-
-      :stop ->
+      result when result in [:owner_down, :stop] ->
         Process.demonitor(monitor, [:flush])
         :ok
     end
@@ -71,7 +66,10 @@ defmodule FerricStore.SDK.Native.ConnectionEncodingWorker do
     with {:ok, remaining} <- remaining(job),
          {:ok, payload} <-
            PipelinePreparer.prepare(job.opcode, job.payload, job.max_pipeline_commands),
-         response_context = ResponsePlan.build(job.opcode, payload),
+         response_context = %{
+           response_plan: ResponsePlan.build(job.opcode, payload),
+           compact_codec: job.compact_response_codec
+         },
          payload <-
            payload
            |> Protocol.payload_or_empty()

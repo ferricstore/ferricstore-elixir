@@ -32,7 +32,7 @@ Environment:
 
 - Client: local macOS
 - Server: Docker image built from FerricStore commit
-  `be3bd85dedc57b2fd787dcc224e4de90bb660ca6`
+  `72452814231f592aff051c22fdbe7114476e2879`
 - Protocol: native `ferric://`
 - Server URL: `ferric://127.0.0.1:6398`
 - Protected mode disabled for local benchmark only

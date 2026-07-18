@@ -9,6 +9,7 @@ defmodule FerricStore.SDK.Native.CoordinatorInfoRuntime do
     CoordinatorConnectionRuntime,
     CoordinatorEventRuntime,
     CoordinatorLifecycleRuntime,
+    CoordinatorRetryInfo,
     CoordinatorRuntime,
     CoordinatorServerEventRuntime,
     CoordinatorTopologyRefreshRuntime,
@@ -47,6 +48,10 @@ defmodule FerricStore.SDK.Native.CoordinatorInfoRuntime do
        &CoordinatorRuntime.dispatch_connection/4
      )}
   end
+
+  def handle({kind, id}, state)
+      when kind in [:retry_request, :retry_batch] and is_reference(id),
+      do: CoordinatorRetryInfo.handle(kind, id, state)
 
   def handle({:pending_request_timeout, tag}, state) do
     endpoint_key = CoordinatorConnectionRuntime.pending_endpoint_key(state, tag)
@@ -167,16 +172,14 @@ defmodule FerricStore.SDK.Native.CoordinatorInfoRuntime do
     )
   end
 
-  def handle({:ferricstore_connection_capacity, conn, capacity}, state) do
-    endpoint_key = ConnectionPool.endpoint_key(state.connection_pool, conn)
-    pool = ConnectionPool.update_capacity(state.connection_pool, conn, capacity)
-    state = %{state | connection_pool: pool}
-
-    case endpoint_key do
-      {:ok, key} -> {:noreply, CoordinatorRuntime.resume_waiting_batch_endpoint(state, key)}
-      :error -> {:noreply, state}
-    end
-  end
+  def handle({:ferricstore_connection_capacity, conn, capacity}, state),
+    do:
+      CoordinatorConnectionRuntime.update_capacity(
+        state,
+        conn,
+        capacity,
+        &CoordinatorRuntime.resume_waiting_batch_endpoint/2
+      )
 
   def handle({:preparation_reservation_timeout, reservation}, state)
       when is_reference(reservation),

@@ -134,7 +134,8 @@ defmodule FerricStore.SDK.Native.CoordinatorRuntimeCallbacks do
         dispatch_retried_pending_request: [:state, :tag],
         fail_retried_pending_request: [:state, :tag, :reason],
         maybe_retry_completed_request: [:state, :request, :reason],
-        maybe_retry_initial_dispatch: [:state, :request, :reason]
+        maybe_retry_initial_dispatch: [:state, :request, :reason],
+        resume_retried_pending_request: [:state, :tag]
       ] do
     variables = Enum.map(arguments, &Macro.var(&1, nil))
 

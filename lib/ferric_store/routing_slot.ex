@@ -6,21 +6,14 @@ defmodule FerricStore.RoutingSlot do
   @slot_mask 1_023
 
   @spec for_key(binary()) :: non_neg_integer()
-  def for_key("f:{" <> rest = key), do: flow_tag_slot(rest, key)
-  def for_key("X:f:{" <> rest = key), do: flow_tag_slot(rest, key)
-
   def for_key(key) when is_binary(key) do
     key
     |> hash_input()
     |> slot()
   end
 
-  defp flow_tag_slot(rest, fallback_key) do
-    case :binary.match(rest, "}") do
-      {end_pos, 1} when end_pos > 0 -> rest |> binary_part(0, end_pos) |> slot()
-      _missing_tag -> fallback_key |> hash_input() |> slot()
-    end
-  end
+  @spec for_tag(binary()) :: non_neg_integer()
+  def for_tag(tag) when is_binary(tag), do: slot(tag)
 
   defp hash_input(key) do
     case :binary.match(key, "{") do

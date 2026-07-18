@@ -193,7 +193,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
       %{opcode: 0x0007} ->
         NativeServer.topology_payload(Agent.get(port_holder, & &1))
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"auth_required" => true, "protocol" => "ferricstore-native"}
 
       _request ->
@@ -219,7 +219,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
 
   test "startup refuses an authentication-required session without a password" do
     response_fun = fn
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         NativeServer.startup_payload(%{"auth_required" => true})
 
       %{opcode: 0x0007, socket: socket} ->
@@ -238,7 +238,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
     assert {:error, :missing_password} =
              SDK.start_link(seeds: [{"127.0.0.1", NativeServer.port(server)}])
 
-    assert_receive {:native_server_request, %{opcode: 0x000C}}
+    assert_receive {:native_server_request, %{opcode: 0x0001}}
     refute_receive {:native_server_request, %{opcode: 0x0002}}
     refute_receive {:native_server_request, %{opcode: 0x0007}}
     assert_eventually(fn -> NativeServer.connection_count(server) == 0 end)
@@ -285,7 +285,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
     {:ok, port_holder} = Agent.start_link(fn -> nil end)
 
     response_fun = fn
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{
           "protocol" => "ferricstore-native",
           "capabilities" => %{
@@ -348,7 +348,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
           do: NativeServer.topology_payload(Agent.get(port_holder, & &1)),
           else: :noreply
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       _request ->
@@ -385,7 +385,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
           _later -> topology
         end
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       _request ->
@@ -433,7 +433,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
           _later -> topology
         end
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       _request ->
@@ -517,7 +517,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
       NativeServer.start_link(
         owner: self(),
         response_fun: fn
-          %{opcode: 0x000C} -> :noreply
+          %{opcode: 0x0001} -> :noreply
           _request -> "OK"
         end
       )
@@ -665,7 +665,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
       NativeServer.start_link(
         owner: self(),
         response_fun: fn
-          %{opcode: 0x000C} -> {:reply_after, 35, %{"protocol" => "ferricstore-native"}}
+          %{opcode: 0x0001} -> {:reply_after, 35, %{"protocol" => "ferricstore-native"}}
           _request -> "OK"
         end
       )
@@ -719,7 +719,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> NativeServer.raw_startup(incompatible_startup)
+      %{opcode: 0x0001} -> NativeServer.raw_startup(incompatible_startup)
       _request -> "OK"
     end
 
@@ -753,7 +753,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
           do: NativeServer.topology_payload(Agent.get(port_holder, & &1)),
           else: :noreply
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       _request ->
@@ -806,11 +806,17 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
           do: NativeServer.topology_payload(Agent.get(port_holder, & &1)),
           else: :noreply
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       %{opcode: 0x0101} ->
-        {:reply, "moved", status: 5}
+        {:reply,
+         %{
+           "message" => "moved",
+           "retryable" => true,
+           "safe_to_retry" => true,
+           "retry_after_ms" => 0
+         }, status: 5}
 
       _request ->
         "OK"
@@ -868,7 +874,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
         owner: self(),
         response_fun: fn
           %{opcode: 0x0007} -> three_shard_topology(ports)
-          %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+          %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
           _request -> "OK"
         end
       )
@@ -912,7 +918,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
         owner: self(),
         response_fun: fn
           %{opcode: 0x0007} -> three_shard_topology(ports)
-          %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+          %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
           _request -> "OK"
         end
       )
@@ -972,7 +978,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
         owner: self(),
         response_fun: fn
           %{opcode: 0x0007} -> topology_payload(data_port)
-          %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+          %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
           _request -> "OK"
         end
       )
@@ -1006,7 +1012,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
             Agent.update(commits, &(&1 + 1))
             {:reply_after, 200, "OK"}
 
-          %{opcode: 0x000C} ->
+          %{opcode: 0x0001} ->
             %{"protocol" => "ferricstore-native"}
 
           _request ->
@@ -1028,7 +1034,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
             port = if epoch == 1, do: old_port, else: new_port
             NativeServer.topology_payload(port, route_epoch: epoch, node: "data-#{epoch}")
 
-          %{opcode: 0x000C} ->
+          %{opcode: 0x0001} ->
             %{"protocol" => "ferricstore-native"}
 
           _request ->
@@ -1068,7 +1074,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
         owner: self(),
         response_fun: fn
           %{opcode: 0x0102} -> :noreply
-          %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+          %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
           _request -> "OK"
         end
       )
@@ -1087,7 +1093,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
             port = if epoch == 1, do: old_port, else: new_port
             NativeServer.topology_payload(port, route_epoch: epoch, node: "data-#{epoch}")
 
-          %{opcode: 0x000C} ->
+          %{opcode: 0x0001} ->
             %{"protocol" => "ferricstore-native"}
 
           _request ->
@@ -1156,7 +1162,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
       %{opcode: 0x0007} ->
         NativeServer.topology_payload(Agent.get(port_holder, & &1))
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       %{opcode: 0x0101} ->
@@ -1209,7 +1215,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
 
         NativeServer.topology_payload(Agent.get(port_holder, & &1), route_epoch: epoch)
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       _request ->

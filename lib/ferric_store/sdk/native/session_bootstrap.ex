@@ -11,9 +11,9 @@ defmodule FerricStore.SDK.Native.SessionBootstrap do
     request_timeout = Keyword.fetch!(opts, :request_timeout)
 
     with {:ok, timeout} <- request_timeout.(),
-         {:ok, startup} <- startup(conn, Keyword.fetch!(opts, :client_name), timeout),
-         :ok <- ServerContract.validate(startup),
-         :ok <- require_credentials(startup, Keyword.get(opts, :password)),
+         {:ok, hello} <- hello(conn, Keyword.fetch!(opts, :client_name), timeout),
+         :ok <- ServerContract.validate(hello),
+         :ok <- require_credentials(hello, Keyword.get(opts, :password)),
          {:ok, timeout} <- request_timeout.(),
          :ok <-
            authenticate(
@@ -26,21 +26,19 @@ defmodule FerricStore.SDK.Native.SessionBootstrap do
          {:ok, topology} <-
            maybe_load_topology(conn, Keyword.get(opts, :topology_endpoint), request_timeout),
          {:ok, timeout} <- request_timeout.(),
-         :ok <- Connection.complete_bootstrap(conn, startup, timeout),
+         :ok <- Connection.complete_bootstrap(conn, hello, timeout),
          {:ok, _remaining} <- request_timeout.() do
       {:ok, topology}
     end
   end
 
-  defp startup(conn, client_name, timeout) do
+  defp hello(conn, client_name, timeout) do
     payload = %{
       "client_name" => client_name,
-      "compact_flow_responses" => true,
-      "compression" => "none",
-      "driver_name" => client_name
+      "compression" => "none"
     }
 
-    Connection.request(conn, Opcodes.startup(), payload, 0, timeout)
+    Connection.request(conn, Opcodes.hello(), payload, 0, timeout)
   end
 
   defp authenticate(_conn, nil, nil, _timeout), do: :ok
@@ -64,8 +62,8 @@ defmodule FerricStore.SDK.Native.SessionBootstrap do
     end
   end
 
-  defp require_credentials(startup, nil) do
-    if Map.get(startup, "auth_required", Map.get(startup, :auth_required)),
+  defp require_credentials(hello, nil) do
+    if Map.get(hello, "auth_required", Map.get(hello, :auth_required)),
       do: {:error, :missing_password},
       else: :ok
   end

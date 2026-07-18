@@ -2,9 +2,7 @@ defmodule FerricStore.Flow.PolicyIndexValidator do
   @moduledoc false
 
   alias FerricStore.BoundedList
-  alias FerricStore.Flow.PolicyValidation
-
-  @max_active_ms 31_536_000_000
+  alias FerricStore.Flow.{MaxActive, PolicyValidation}
 
   def validate(options) do
     with :ok <- validate_max_active_ms(Map.fetch(options, "max_active_ms")),
@@ -15,15 +13,11 @@ defmodule FerricStore.Flow.PolicyIndexValidator do
 
   defp validate_max_active_ms(:error), do: :ok
 
-  defp validate_max_active_ms({:ok, value})
-       when value in [nil, :infinity, "infinity", "INFINITY"],
-       do: :ok
-
-  defp validate_max_active_ms({:ok, value})
-       when is_integer(value) and value > 0 and value <= @max_active_ms,
-       do: :ok
-
-  defp validate_max_active_ms({:ok, _value}), do: PolicyValidation.error("max_active_ms")
+  defp validate_max_active_ms({:ok, value}) do
+    if MaxActive.valid?(value),
+      do: :ok,
+      else: PolicyValidation.error("max_active_ms")
+  end
 
   defp validate_attributes(:error), do: :ok
   defp validate_attributes({:ok, nil}), do: :ok

@@ -5,23 +5,24 @@ defmodule FerricStore.SDK.Native.ServerContract do
 
   alias FerricStore.SDK.Native.{
     ServerContractCollections,
+    ServerContractProtocol,
+    ServerContractResponses,
     ServerContractShape,
     ServerSessionContract
   }
 
-  @protocol "ferricstore-native"
-  @protocol_version 1
   @spec validate(term()) :: :ok | {:error, {:incompatible_server_contract, map()}}
   def validate(startup) when is_map(startup) do
     with :ok <- ServerContractShape.validate(startup),
-         :ok <- validate_protocol(startup),
+         :ok <- ServerContractProtocol.validate_startup(startup),
          :ok <- ServerSessionContract.validate(startup),
          {:ok, capabilities} <- fetch_map(startup, "capabilities"),
-         :ok <- validate_protocol_version(capabilities),
+         :ok <- ServerContractProtocol.validate_capabilities(capabilities),
+         :ok <- ServerContractResponses.validate(capabilities),
          {:ok, schemas} <- fetch_map(capabilities, "schemas"),
          :ok <- validate_schemas(schemas),
          :ok <- validate_opcodes(capabilities),
-         :ok <- validate_auth_requirement(startup) do
+         :ok <- ServerContractProtocol.validate_auth_requirement(startup) do
       :ok
     else
       {:error, details} -> incompatible(details)
@@ -29,53 +30,6 @@ defmodule FerricStore.SDK.Native.ServerContract do
   end
 
   def validate(startup), do: incompatible(%{invalid_startup: startup})
-
-  defp validate_protocol(startup) do
-    case Types.get(startup, "protocol") do
-      @protocol -> :ok
-      protocol -> {:error, %{protocol: protocol, required_protocol: @protocol}}
-    end
-  end
-
-  defp validate_auth_requirement(startup) do
-    case Types.get(startup, "auth_required") do
-      required when is_boolean(required) -> :ok
-      value -> {:error, %{invalid_startup_field: "auth_required", value: value}}
-    end
-  end
-
-  defp validate_protocol_version(capabilities) do
-    versions = Types.get(capabilities, "protocol_versions")
-
-    case versions do
-      versions when is_list(versions) ->
-        validate_protocol_versions(versions)
-
-      _invalid ->
-        {:error,
-         %{
-           invalid_capability: "protocol_versions",
-           required_protocol_version: @protocol_version
-         }}
-    end
-  end
-
-  defp validate_protocol_versions(versions) do
-    case ServerContractCollections.protocol_versions(versions, @protocol_version) do
-      :ok ->
-        :ok
-
-      {:error, :missing_required_version} ->
-        {:error, %{protocol_versions: versions, required_protocol_version: @protocol_version}}
-
-      {:error, reason} ->
-        {:error,
-         %{
-           invalid_capability: "protocol_versions",
-           reason: reason
-         }}
-    end
-  end
 
   defp validate_schemas(schemas) do
     CapabilityContract.required_schemas()

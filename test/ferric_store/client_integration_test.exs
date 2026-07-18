@@ -268,19 +268,15 @@ defmodule FerricStore.ClientIntegrationTest do
 
   test "KV helpers cover set, get, mset, mget, and delete", %{client: client} do
     prefix = unique("kv")
-    key = "#{prefix}:one"
-    other_key = "#{prefix}:two"
+    key = "{#{prefix}}:one"
+    other_key = "{#{prefix}}:two"
 
     assert :ok = FerricStore.set(client, key, "value")
     assert FerricStore.get(client, key) == "value"
 
-    assert FerricStore.mset(
-             client,
-             %{key => "value-2", other_key => "other"},
-             atomicity: :per_slot
-           ) in ["OK", :ok]
+    assert FerricStore.mset(client, %{key => "value-2", other_key => "other"}) in ["OK", :ok]
 
-    assert FerricStore.mget(client, [key, other_key, "#{prefix}:missing"]) == [
+    assert FerricStore.mget(client, [key, other_key, "{#{prefix}}:missing"]) == [
              "value-2",
              "other",
              nil

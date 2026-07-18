@@ -108,7 +108,7 @@ defmodule FerricStore.SDK.Native.KVAdmissionTest do
     warmup_pairs = Map.new(1..256, &{"warmup-key-#{&1}", &1})
 
     assert {:error, :client_backpressure} =
-             SDK.mset(client, warmup_pairs, atomicity: :per_slot)
+             SDK.mset(client, warmup_pairs)
 
     assert_received {:kv_preparation_admission, 256}
 
@@ -117,7 +117,7 @@ defmodule FerricStore.SDK.Native.KVAdmissionTest do
     {:reductions, before_reductions} = Process.info(self(), :reductions)
 
     assert {:error, :client_backpressure} =
-             SDK.mset(client, pairs, atomicity: :per_slot)
+             SDK.mset(client, pairs)
 
     {:reductions, after_reductions} = Process.info(self(), :reductions)
     assert after_reductions - before_reductions < 50_000

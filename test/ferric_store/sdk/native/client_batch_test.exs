@@ -10,7 +10,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       %{opcode: 0x0104} -> {:reply_after, 300, ["batch-value"]}
       %{opcode: 0x0101} -> "get-value"
       _request -> "OK"
@@ -38,7 +38,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       %{opcode: 0x0104} -> {:reply_after, 200, ["batch-value"]}
       %{opcode: 0x0101} -> "get-value"
       _request -> "OK"
@@ -70,7 +70,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
         port = Agent.get(port_holder, & &1)
         two_shard_topology(port, port)
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{
           "protocol" => "ferricstore-native",
           "capabilities" => %{
@@ -116,7 +116,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
         port = Agent.get(port_holder, & &1)
         three_shard_topology([port, port, port])
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{
           "protocol" => "ferricstore-native",
           "capabilities" => %{
@@ -165,7 +165,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
       %{opcode: 0x0007} ->
         NativeServer.topology_payload(Agent.get(port_holder, & &1))
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{
           "protocol" => "ferricstore-native",
           "capabilities" => %{
@@ -209,7 +209,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       %{opcode: 0x0104} -> ["batch-value"]
       %{opcode: 0x0003} -> "pong"
       _request -> "OK"
@@ -258,7 +258,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       %{opcode: 0x0104, payload: %{"keys" => keys}} -> keys
       _request -> "OK"
     end
@@ -344,7 +344,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     refute_receive {:native_server_request, %{opcode: 0x0101}}, 50
   end
 
-  test "high-level multi-shard writes require explicit partial atomicity" do
+  test "high-level MSET rejects cross-slot writes atomically" do
     {:ok, second_server} = NativeServer.start_link(owner: self())
     second_port = NativeServer.port(second_server)
     {:ok, seed_port_holder} = Agent.start_link(fn -> nil end)
@@ -372,7 +372,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     assert {:error,
             %FerricStore.Error{
-              raw: {:multi_slot_write_requires_explicit_policy, :mset}
+              raw: {:cross_slot_keys, :mset}
             }} = FerricStore.mset(client, [{first_key, "one"}, {second_key, "two"}])
 
     assert {:error,
@@ -383,10 +383,8 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     refute_receive {:native_server_request, %{opcode: 0x0103}}, 50
     refute_receive {:native_server_request, %{opcode: 0x0105}}, 10
 
-    assert :ok =
-             FerricStore.mset(client, [{first_key, "one"}, {second_key, "two"}],
-               atomicity: :per_slot
-             )
+    assert {:error, {:invalid_kv_input, %{reason: :unsupported_options}}} =
+             SDK.mset(client, [{first_key, "one"}, {second_key, "two"}], atomicity: :per_slot)
   end
 
   test "mset rejects malformed pairs without leaking callback failures or reaching the wire" do
@@ -537,10 +535,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     request =
       Task.async(fn ->
         try do
-          SDK.mset(client, [{"oversized-key", String.duplicate("x", 1_024)}],
-            atomicity: :per_slot,
-            call_timeout: 50
-          )
+          SDK.mset(client, [{"oversized-key", String.duplicate("x", 1_024)}], call_timeout: 50)
         catch
           :exit, {:timeout, _call} -> :entered_coordinator
         end
@@ -555,7 +550,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     end
   end
 
-  test "partial multi-shard writes identify every successful and failed input group" do
+  test "cross-slot MSET never reports misleading partial write results" do
     {:ok, failed_server} =
       NativeServer.start_link(
         owner: self(),
@@ -572,7 +567,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
       %{opcode: 0x0007} ->
         two_shard_topology(Agent.get(seed_port_holder, & &1), failed_port)
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       _request ->
@@ -589,21 +584,10 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     success_key = key_in_slots(0..511)
     failed_key = key_in_slots(512..1023)
 
-    result =
-      SDK.mset(client, [{success_key, "one"}, {failed_key, "two"}], atomicity: :per_slot)
+    result = SDK.mset(client, [{success_key, "one"}, {failed_key, "two"}])
 
-    assert {:error,
-            {:partial_group_failure,
-             %{
-               successes: [%{indexes: [0], value: "OK"}],
-               failures: [
-                 %{
-                   indexes: [1],
-                   route: %{shard: 1, lane_id: 2},
-                   reason: {:bad_request, "rejected"}
-                 }
-               ]
-             }}} = result
+    assert {:error, {:cross_slot_keys, :mset}} = result
+    refute_receive {:native_server_request, %{opcode: 0x0105}}, 50
 
     refute inspect(result) =~ "\"one\""
     refute inspect(result) =~ "\"two\""
@@ -616,7 +600,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> two_shard_topology(data_port, unavailable_port)
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       _request -> "OK"
     end
 
@@ -629,7 +613,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     second_key = key_in_slots(512..1023)
 
     assert {:error, {:retry_failed, {:connect_failed, _}, {:connect_failed, _}}} =
-             SDK.mset(client, [{first_key, "one"}, {second_key, "two"}], atomicity: :per_slot)
+             SDK.mget(client, [first_key, second_key])
 
     state = ClientRuntime.state(client)
     tracked = state.connection_pool.connections |> Map.values() |> MapSet.new()
@@ -674,7 +658,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
         [first_port, second_port] = if request == 0, do: dead_ports, else: live_ports
         two_shard_topology(first_port, second_port)
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       _request ->
@@ -712,7 +696,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
       %{opcode: 0x0007} ->
         two_shard_topology(Agent.get(seed_port_holder, & &1), second_port)
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       %{opcode: 0x0104} ->
@@ -760,7 +744,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
   test "a slow batch connection handshake does not block existing control traffic" do
     data_response = fn
-      %{opcode: 0x000C} -> {:reply_after, 300, %{"protocol" => "ferricstore-native"}}
+      %{opcode: 0x0001} -> {:reply_after, 300, %{"protocol" => "ferricstore-native"}}
       %{opcode: 0x0104} -> ["batch"]
       _request -> "OK"
     end
@@ -770,7 +754,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     seed_response = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(data_port, node: "data")
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       _request -> "OK"
     end
 
@@ -781,7 +765,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     flush_native_server_messages()
 
     batch = Task.async(fn -> SDK.mget(client, ["slow-batch"], timeout: 1_000) end)
-    assert_receive {:native_server_request, %{opcode: 0x000C}}, 200
+    assert_receive {:native_server_request, %{opcode: 0x0001}}, 200
     started = System.monotonic_time(:millisecond)
 
     assert {:ok, "OK"} = SDK.ping(client, "responsive", endpoint: seed_endpoint)
@@ -795,7 +779,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     data_servers =
       Enum.map(1..3, fn index ->
         response_fun = fn
-          %{opcode: 0x000C} ->
+          %{opcode: 0x0001} ->
             send(owner, {:data_hello, index})
             {:reply_after, 100, %{"protocol" => "ferricstore-native"}}
 
@@ -814,7 +798,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     seed_response = fn
       %{opcode: 0x0007} -> three_shard_topology(ports)
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       _request -> "OK"
     end
 
@@ -841,7 +825,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     data_servers =
       Enum.map(1..2, fn index ->
         response_fun = fn
-          %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+          %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
           %{opcode: 0x0104} -> ["value-#{index}"]
           _request -> "OK"
         end
@@ -854,7 +838,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     seed_response = fn
       %{opcode: 0x0007} -> two_shard_topology(Enum.at(ports, 0), Enum.at(ports, 1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       _request -> "OK"
     end
 
@@ -878,7 +862,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     owner = self()
 
     first_response = fn
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         send(owner, :first_connection_started)
         {:reply_after, 100, %{"protocol" => "ferricstore-native"}}
 
@@ -890,7 +874,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
     end
 
     second_response = fn
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       %{opcode: 0x0104} -> ["second"]
       _request -> "OK"
     end
@@ -905,7 +889,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
           NativeServer.port(second_server)
         )
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       _request ->
@@ -937,7 +921,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       %{opcode: 0x0104} -> :noreply
       _request -> "OK"
     end
@@ -986,11 +970,17 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
           do: NativeServer.topology_payload(Agent.get(port_holder, & &1)),
           else: :noreply
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       %{opcode: 0x0104} ->
-        {:reply, "moved", status: 5}
+        {:reply,
+         %{
+           "message" => "moved",
+           "retryable" => true,
+           "safe_to_retry" => true,
+           "retry_after_ms" => 0
+         }, status: 5}
 
       _request ->
         "OK"
@@ -1087,7 +1077,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       %{opcode: 0x0104} -> :noreply
       _request -> "OK"
     end

@@ -60,6 +60,7 @@ defmodule FerricStore.SDK.KVTest do
     end
 
     defp scalar_response(0x0106, _payload), do: true
+    defp scalar_response(0x0100, %{"command" => "MSETNX"}), do: 1
     defp scalar_response(0x0107, _payload), do: "OK"
     defp scalar_response(opcode, _payload) when opcode in [0x0108, 0x0109], do: 1
     defp scalar_response(0x010A, _payload), do: ["allowed", 2, 8, 500]
@@ -102,6 +103,39 @@ defmodule FerricStore.SDK.KVTest do
     assert_received {:command_items, ^pairs, opts}
     assert opts[:require_same_slot] == :mset
     refute_received {:route, _key}
+  end
+
+  test "msetnx validates one slot and sends one routed canonical command" do
+    {:ok, client} = CaptureClient.start_link(self())
+    pairs = [{"{tenant}:one", "1"}, {"{tenant}:two", "2"}]
+
+    assert {:ok, true} = KV.msetnx(client, pairs)
+
+    assert_received {:command, 0x0100, "{tenant}:one",
+                     %{
+                       "command" => "MSETNX",
+                       "args" => ["{tenant}:one", "1", "{tenant}:two", "2"]
+                     }, _opts}
+  end
+
+  test "mset and msetnx reject cross-slot writes without an escape hatch" do
+    {:ok, client} = CaptureClient.start_link(self())
+    pairs = [{"{one}:key", "1"}, {"{two}:key", "2"}]
+
+    assert {:error,
+            {:invalid_kv_input,
+             %{operation: :mset, field: :options, reason: :unsupported_options}}} =
+             KV.mset(client, pairs, atomicity: :per_slot)
+
+    assert {:error, {:cross_slot_keys, :msetnx}} = KV.msetnx(client, pairs)
+    refute_received {:command, _, _, _, _}
+    refute_received {:command_items, _, _}
+  end
+
+  test "msetnx rejects an empty write locally" do
+    {:ok, client} = CaptureClient.start_link(self())
+    assert {:error, {:invalid_msetnx_pairs, :empty}} = KV.msetnx(client, [])
+    refute_received {:command, _, _, _, _}
   end
 
   test "mget reconstructs cross-group values in original key order" do
@@ -272,7 +306,7 @@ defmodule FerricStore.SDK.KVTest do
     assert {:error,
             {:invalid_mset_group_response,
              %{actual_items: 1, expected_items: 2, reason: :incomplete_groups}}} =
-             KV.mset(mset_client, [{"a", "A"}, {"b", "B"}], atomicity: :per_slot)
+             KV.mset(mset_client, [{"{same}:a", "A"}, {"{same}:b", "B"}])
   end
 
   test "grouped writes reject duplicate and out-of-range indexes" do
@@ -290,7 +324,7 @@ defmodule FerricStore.SDK.KVTest do
       result =
         case operation do
           :del -> KV.del(client, ["a", "b"], atomicity: :per_shard)
-          :mset -> KV.mset(client, [{"a", "A"}, {"b", "B"}], atomicity: :per_slot)
+          :mset -> KV.mset(client, [{"{same}:a", "A"}, {"{same}:b", "B"}])
         end
 
       assert {:error, {error_tag, %{reason: ^reason}}} = result
@@ -667,10 +701,7 @@ defmodule FerricStore.SDK.KVTest do
 
     calls = [
       {:del, :expected_per_shard, fn -> KV.del(client, ["a", "b"], atomicity: :typo) end},
-      {:del, :expected_per_shard, fn -> KV.del(client, [], atomicity: :typo) end},
-      {:mset, :expected_per_slot,
-       fn -> KV.mset(client, [{"a", "A"}, {"b", "B"}], atomicity: :typo) end},
-      {:mset, :expected_per_slot, fn -> KV.mset(client, [], atomicity: :typo) end}
+      {:del, :expected_per_shard, fn -> KV.del(client, [], atomicity: :typo) end}
     ]
 
     Enum.each(calls, fn {operation, expected_reason, call} ->
@@ -687,18 +718,17 @@ defmodule FerricStore.SDK.KVTest do
     refute_received {:command_items, _items, _opts}
   end
 
-  test "MSET exposes the server's per-slot partial atomicity policy without a shard alias" do
-    assert {:ok, context} = Options.validate(:mset, atomicity: :per_slot)
-    assert RequestContext.options(context) == [atomicity: :per_slot]
-
-    assert {:error,
-            {:invalid_kv_input,
-             %{
-               operation: :mset,
-               field: :atomicity,
-               reason: :expected_per_slot,
-               value: :per_shard
-             }}} = Options.validate(:mset, atomicity: :per_shard)
+  test "MSET rejects beta-era partial-atomicity overrides" do
+    for policy <- [:per_slot, :per_shard] do
+      assert {:error,
+              {:invalid_kv_input,
+               %{
+                 operation: :mset,
+                 field: :options,
+                 reason: :unsupported_options,
+                 options: [:atomicity]
+               }}} = Options.validate(:mset, atomicity: policy)
+    end
   end
 
   test "scalar KV grammar constraints fail locally with typed errors" do

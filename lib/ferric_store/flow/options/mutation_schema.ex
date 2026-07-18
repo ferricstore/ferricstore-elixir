@@ -59,6 +59,7 @@ defmodule FerricStore.Flow.Options.MutationSchema do
          :idempotent,
          :priority,
          :retention_ttl_ms,
+         :max_active_ms,
          :attributes,
          :state_meta,
          :values,

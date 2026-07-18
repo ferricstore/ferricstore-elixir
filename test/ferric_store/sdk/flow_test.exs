@@ -325,11 +325,11 @@ defmodule FerricStore.SDK.FlowTest do
 
   defp auto_route_key(id) do
     bucket = rem(:erlang.crc32(id), 256)
-    "f:{fa:#{bucket}}:route"
+    {:slot, Bitwise.band(:erlang.crc32("fa:#{bucket}"), 1_023)}
   end
 
   defp partition_route_key(partition) do
     digest = partition |> then(&:crypto.hash(:sha256, &1)) |> Base.url_encode64(padding: false)
-    "f:{f:#{digest}}:route"
+    {:slot, Bitwise.band(:erlang.crc32("f:#{digest}"), 1_023)}
   end
 end

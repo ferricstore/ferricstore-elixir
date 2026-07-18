@@ -479,7 +479,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
     flush_native_server_messages()
 
     routed_request = Task.async(fn -> SDK.get(client, "slow-route", timeout: 1_000) end)
-    assert_receive {:native_server_request, %{opcode: 0x000C}}, 200
+    assert_receive {:native_server_request, %{opcode: 0x0001}}, 200
 
     started = System.monotonic_time(:millisecond)
 
@@ -497,7 +497,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
       NativeServer.start_link(
         owner: self(),
         response_fun: fn
-          %{opcode: 0x000C} ->
+          %{opcode: 0x0001} ->
             {:reply_after, 200, %{"protocol" => "ferricstore-native"}}
 
           %{opcode: 0x0101} ->
@@ -534,7 +534,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
       NativeServer.start_link(
         owner: self(),
         response_fun: fn
-          %{opcode: 0x000C} -> :noreply
+          %{opcode: 0x0001} -> :noreply
           _request -> "OK"
         end
       )
@@ -569,7 +569,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
           NativeServer.start_link(
             owner: self(),
             response_fun: fn
-              %{opcode: 0x000C} -> :noreply
+              %{opcode: 0x0001} -> :noreply
               _request -> "OK"
             end
           )
@@ -864,7 +864,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
           route_epoch: Agent.get(route_epoch, & &1)
         )
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         NativeServer.startup_payload()
 
       _request ->
@@ -909,7 +909,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
             NativeServer.topology_payload(port, route_epoch: Agent.get(route_epoch, & &1))
         end
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         NativeServer.startup_payload()
 
       _request ->
@@ -1292,7 +1292,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
       port = Agent.get(port_holder, & &1)
 
       case request.opcode do
-        0x000C -> {:reply_after, 80, %{"protocol" => "ferricstore-native"}}
+        0x0001 -> {:reply_after, 80, %{"protocol" => "ferricstore-native"}}
         0x0007 -> NativeServer.topology_payload(port)
         _opcode -> "OK"
       end
@@ -1315,7 +1315,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
         end
       end)
 
-    assert_receive {:native_server_request, %{opcode: 0x000C}}, 100
+    assert_receive {:native_server_request, %{opcode: 0x0001}}, 100
     refute_receive {:native_server_request, %{opcode: 0x0003}}, 50
 
     assert_receive {:sdk_started, {:ok, client}}, 1_000
@@ -1525,7 +1525,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
 
   defp start_sdk_with_slow_routed_endpoint(hello_delay) do
     data_response = fn
-      %{opcode: 0x000C} -> {:reply_after, hello_delay, %{"protocol" => "ferricstore-native"}}
+      %{opcode: 0x0001} -> {:reply_after, hello_delay, %{"protocol" => "ferricstore-native"}}
       _request -> "OK"
     end
 
@@ -1534,7 +1534,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
 
     seed_response = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(data_port, node: "data-node")
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       _request -> "OK"
     end
 
@@ -1571,7 +1571,7 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
   defp default_response(%{opcode: 0x0007}, port, _delay),
     do: NativeServer.topology_payload(port)
 
-  defp default_response(%{opcode: 0x000C}, _port, _delay),
+  defp default_response(%{opcode: 0x0001}, _port, _delay),
     do: %{"protocol" => "ferricstore-native"}
 
   defp default_response(%{opcode: opcode}, _port, delay) when opcode >= 0x0100 and delay > 0,

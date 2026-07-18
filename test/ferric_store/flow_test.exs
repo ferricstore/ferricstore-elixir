@@ -244,7 +244,7 @@ defmodule FerricStore.FlowTest do
     {:ok, client} = CaptureNativeClient.start_link(self())
     partition = "tenant-route"
     digest = partition |> then(&:crypto.hash(:sha256, &1)) |> Base.url_encode64(padding: false)
-    route = "f:{f:#{digest}}:route"
+    route = {:slot, Bitwise.band(:erlang.crc32("f:#{digest}"), 1_023)}
     id = "flow-id"
 
     calls = [
@@ -1236,7 +1236,7 @@ defmodule FerricStore.FlowTest do
     {:ok, client} = CaptureNativeClient.start_link(self())
     partition = "tenant:a"
     digest = partition |> then(&:crypto.hash(:sha256, &1)) |> Base.url_encode64(padding: false)
-    route = "f:{f:#{digest}}:route"
+    route = {:slot, Bitwise.band(:erlang.crc32("f:#{digest}"), 1_023)}
 
     assert "OK" =
              Flow.create_many(client, ["flow-1"],
@@ -1861,11 +1861,11 @@ defmodule FerricStore.FlowTest do
   end
 
   test "Flow stops application response decoding when the request deadline expires" do
-    encoded = SlowDecodeCodec.encode({self(), 250, :decoded})
+    encoded = SlowDecodeCodec.encode({self(), 1_000, :decoded})
     {:ok, client} = CaptureReadClient.start_link(self(), %{"payload" => encoded}, [])
 
     assert {:error, %FerricStore.Error{raw: :timeout}} =
-             Flow.get(client, "flow-1", codec: SlowDecodeCodec, timeout: 50)
+             Flow.get(client, "flow-1", codec: SlowDecodeCodec, timeout: 250)
 
     assert_receive {:slow_flow_decoder, decoder}
     refute decoder == self()

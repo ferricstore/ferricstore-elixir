@@ -714,7 +714,7 @@ defmodule FerricStore.SDK.Native.ClientValidationTest do
       %{opcode: 0x0007} ->
         NativeServer.topology_payload(Agent.get(port_holder, & &1), host: "localhost")
 
-      %{opcode: 0x000C} ->
+      %{opcode: 0x0001} ->
         %{"protocol" => "ferricstore-native"}
 
       _request ->
@@ -797,7 +797,7 @@ defmodule FerricStore.SDK.Native.ClientValidationTest do
 
     response_fun = fn
       %{opcode: 0x0007} -> NativeServer.topology_payload(Agent.get(port_holder, & &1))
-      %{opcode: 0x000C} -> %{"protocol" => "ferricstore-native"}
+      %{opcode: 0x0001} -> %{"protocol" => "ferricstore-native"}
       _request -> "OK"
     end
 

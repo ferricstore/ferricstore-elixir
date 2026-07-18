@@ -1,7 +1,8 @@
 defmodule FerricStore.FlowRouting.PartitionScan do
   @moduledoc false
 
-  alias FerricStore.{DeadlineBudget, RouteKey, RoutingSlot}
+  alias FerricStore.{DeadlineBudget, RouteKey}
+  alias FerricStore.SDK.Native.RouteTarget
 
   @deadline_check_interval 256
 
@@ -34,7 +35,7 @@ defmodule FerricStore.FlowRouting.PartitionScan do
 
   defp update_resolution(nil, _slot, partition, resolver) do
     case resolver.(partition) do
-      {:ok, route_key} -> {{:ok, route_key}, RoutingSlot.for_key(route_key)}
+      {:ok, route_key} -> {{:ok, route_key}, RouteTarget.slot(route_key)}
       resolution -> {resolution, nil}
     end
   end
@@ -42,7 +43,7 @@ defmodule FerricStore.FlowRouting.PartitionScan do
   defp update_resolution({:ok, first}, slot, partition, resolver) do
     case resolver.(partition) do
       {:ok, route_key} ->
-        if RoutingSlot.for_key(route_key) == slot,
+        if RouteTarget.slot(route_key) == slot,
           do: {{:ok, first}, slot},
           else: {:none, nil}
 

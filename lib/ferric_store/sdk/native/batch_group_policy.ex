@@ -13,7 +13,7 @@ defmodule FerricStore.SDK.Native.BatchGroupPolicy do
   defp validate_same_slot([], _operation), do: :ok
 
   defp validate_same_slot(_groups, operation),
-    do: {:error, {:multi_slot_write_requires_explicit_policy, operation}}
+    do: {:error, {:cross_slot_keys, operation}}
 
   defp validate_same_shard(_groups, nil), do: :ok
 

@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-SERVER_REF="${FERRICSTORE_SERVER_REF:-be3bd85dedc57b2fd787dcc224e4de90bb660ca6}"
+SERVER_REF="${FERRICSTORE_SERVER_REF:-72452814231f592aff051c22fdbe7114476e2879}"
 IMAGE="${FERRICSTORE_TEST_IMAGE:-ferricstore-sdk-contract:${SERVER_REF:0:12}}"
-SERVER_PATCH="$ROOT_DIR/scripts/server_build_compat.patch"
 SERVER_SOURCE="${FERRICSTORE_SERVER_SOURCE:-}"
 TEMP_SOURCE=""
 
@@ -33,11 +31,8 @@ if [[ "$ACTUAL_REF" != "$SERVER_REF" ]]; then
 fi
 
 if [[ -n "$(git -C "$SERVER_SOURCE" status --porcelain)" ]]; then
-  echo "FerricStore source must be clean before applying the pinned build patch" >&2
+  echo "FerricStore source must be clean before building the pinned image" >&2
   exit 1
 fi
-
-git -C "$SERVER_SOURCE" apply --check "$SERVER_PATCH"
-git -C "$SERVER_SOURCE" apply "$SERVER_PATCH"
 
 docker build --tag "$IMAGE" "$SERVER_SOURCE"

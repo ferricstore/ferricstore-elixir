@@ -48,6 +48,7 @@ defmodule FerricStore.Architecture.RoutingPayloadTest do
 
     assert source_line_count("../../lib/ferric_store/flow/codec_runtime.ex") <= 55
     assert source_line_count("../../lib/ferric_store/flow/payload/create_many_items.ex") <= 80
+    assert source_line_count("../../lib/ferric_store/flow/payload/create_many_map_item.ex") <= 80
     assert source_line_count("../../lib/ferric_store/flow/codec_error.ex") <= 10
 
     for function <- [:set_payload, :get_payload] do

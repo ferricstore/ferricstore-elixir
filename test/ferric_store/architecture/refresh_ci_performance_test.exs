@@ -152,24 +152,9 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
   end
 
   test "CI and release validate against the pinned current server contract" do
-    server_ref = "be3bd85dedc57b2fd787dcc224e4de90bb660ca6"
+    server_ref = "72452814231f592aff051c22fdbe7114476e2879"
 
-    build_patch_path =
-      Path.expand("../../../scripts/server_build_compat.patch", __DIR__)
-
-    build_patch = File.read!(build_patch_path)
-
-    assert Regex.scan(~r/^diff --git a\/(.+) b\/(.+)$/m, build_patch) == [
-             [
-               "diff --git a/apps/ferricstore/native/ferricstore_bitcask/src/path_open.rs " <>
-                 "b/apps/ferricstore/native/ferricstore_bitcask/src/path_open.rs",
-               "apps/ferricstore/native/ferricstore_bitcask/src/path_open.rs",
-               "apps/ferricstore/native/ferricstore_bitcask/src/path_open.rs"
-             ]
-           ]
-
-    assert build_patch =~ "std::mem::zeroed::<libc::open_how>()"
-    refute build_patch =~ "ferricstore_server/native"
+    refute File.exists?(Path.expand("../../../scripts/server_build_compat.patch", __DIR__))
 
     for workflow <- [
           "../../../.github/workflows/ci.yml",
@@ -204,9 +189,9 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     build_script =
       File.read!(Path.expand("../../../scripts/build_integration_server.sh", __DIR__))
 
-    assert build_script =~ "git -C \"$SERVER_SOURCE\" apply --check \"$SERVER_PATCH\""
-    assert build_script =~ "git -C \"$SERVER_SOURCE\" apply \"$SERVER_PATCH\""
     assert build_script =~ "git -C \"$SERVER_SOURCE\" rev-parse HEAD"
+    refute build_script =~ "git apply"
+    refute build_script =~ "SERVER_PATCH"
   end
 
   test "connection capacity resumes only explicitly indexed waiting batches" do
@@ -242,7 +227,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     assert benchmark =~ "@shard_count 16"
     assert benchmark =~ "|> Enum.reverse()"
     assert benchmark =~ "operation: :mset"
-    assert benchmark =~ "atomicity: :per_slot"
+    assert benchmark =~ "{benchmark-mset}:key-"
     assert benchmark =~ "PreparedMap.metadata"
     assert benchmark =~ ~s(enforce_budget("mset_prepare")
 
@@ -258,6 +243,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
 
     refute benchmark =~ "{:command_items,"
     refute benchmark =~ ":mget, _items, item_count"
+    refute benchmark =~ "atomicity: :per_slot"
     refute benchmark =~ "atomicity: :per_shard"
   end
 end

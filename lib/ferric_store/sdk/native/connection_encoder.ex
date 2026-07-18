@@ -6,9 +6,13 @@ defmodule FerricStore.SDK.Native.ConnectionEncoder do
   alias FerricStore.SDK.Native.ConnectionEncodingWorker
 
   @enforce_keys [:control, :data]
-  defstruct [:control, :data]
+  defstruct [:control, :data, compact_response_codecs: %{}]
 
-  @type t :: %__MODULE__{control: pid(), data: pid()}
+  @type t :: %__MODULE__{
+          control: pid(),
+          data: pid(),
+          compact_response_codecs: %{optional(non_neg_integer()) => binary()}
+        }
 
   @spec start(pid()) :: t()
   def start(owner) when is_pid(owner) do
@@ -39,6 +43,7 @@ defmodule FerricStore.SDK.Native.ConnectionEncoder do
       deadline: deadline,
       max_pipeline_commands: state.max_pipeline_commands,
       max_request_bytes: state.max_request_bytes,
+      compact_response_codec: Map.get(state.encoder.compact_response_codecs, opcode),
       transport: state.transport,
       socket: state.socket
     }
@@ -53,6 +58,10 @@ defmodule FerricStore.SDK.Native.ConnectionEncoder do
   def worker?(%__MODULE__{control: worker}, worker), do: true
   def worker?(%__MODULE__{data: worker}, worker), do: true
   def worker?(%__MODULE__{}, _worker), do: false
+
+  @spec put_response_codecs(t(), map()) :: t()
+  def put_response_codecs(%__MODULE__{} = encoder, codecs) when is_map(codecs),
+    do: %{encoder | compact_response_codecs: codecs}
 
   @spec authorize_send(pid(), non_neg_integer(), reference()) :: :ok
   def authorize_send(worker, request_id, encode_token)

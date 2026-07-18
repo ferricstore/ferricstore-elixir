@@ -55,6 +55,9 @@ defmodule FerricStore.SDK.Native.CoordinatorBatchOrchestration do
     {:noreply, state}
   end
 
+  def resume_retry(state, batch_id, callbacks),
+    do: CoordinatorBatchOrchestrator.resume_retry(state, batch_id, callbacks)
+
   def timeout(state, batch_id, callbacks),
     do:
       CoordinatorBatchOrchestrator.timeout(

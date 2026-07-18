@@ -7,15 +7,15 @@ defmodule FerricStore.FlowRoutingTest do
 
   test "auto-partitioned ids use the server's canonical routing tag" do
     id = "flow-id"
-    expected = auto_route_key(id)
+    expected = auto_route(id)
 
     assert {:ok, ^expected} = FlowRouting.resolve_payload(Opcodes.flow_get(), %{"id" => id}, [])
-    refute Topology.slot_for_key(id) == Topology.slot_for_key(expected)
+    refute Topology.slot_for_key(id) == elem(expected, 1)
   end
 
   test "logical partitions use the server's SHA-256 routing tag" do
     partition = "tenant-route"
-    expected = partition_route_key(partition)
+    expected = partition_route(partition)
 
     assert {:ok, ^expected} =
              FlowRouting.resolve_payload(
@@ -24,12 +24,12 @@ defmodule FerricStore.FlowRoutingTest do
                []
              )
 
-    refute Topology.slot_for_key(partition) == Topology.slot_for_key(expected)
+    refute Topology.slot_for_key(partition) == elem(expected, 1)
   end
 
   test "canonical auto-partition keys preserve their server bucket" do
     partition = "__flow_auto__:37"
-    expected = "f:{fa:37}:route"
+    expected = {:slot, slot_for_tag("fa:37")}
 
     assert {:ok, ^expected} =
              FlowRouting.resolve_payload(
@@ -208,13 +208,15 @@ defmodule FerricStore.FlowRoutingTest do
              )
   end
 
-  defp auto_route_key(id) do
+  defp auto_route(id) do
     bucket = rem(:erlang.crc32(id), 256)
-    "f:{fa:#{bucket}}:route"
+    {:slot, slot_for_tag("fa:#{bucket}")}
   end
 
-  defp partition_route_key(partition) do
+  defp partition_route(partition) do
     digest = partition |> then(&:crypto.hash(:sha256, &1)) |> Base.url_encode64(padding: false)
-    "f:{f:#{digest}}:route"
+    {:slot, slot_for_tag("f:#{digest}")}
   end
+
+  defp slot_for_tag(tag), do: Bitwise.band(:erlang.crc32(tag), 1_023)
 end

@@ -65,6 +65,17 @@ defmodule FerricStore.SDK.Native.CoordinatorRuntime do
   def handle_pending_timeout(state, request),
     do: CoordinatorRuntimeCallbacks.handle_pending_timeout(state, request)
 
+  def resume_request_retry(state, tag),
+    do: CoordinatorRuntimeCallbacks.resume_retried_pending_request(state, tag)
+
+  def resume_batch_retry(state, batch_id),
+    do:
+      CoordinatorBatchOrchestration.resume_retry(
+        state,
+        batch_id,
+        CoordinatorRuntimeCallbacks.batch()
+      )
+
   def timeout_batch(state, batch_id),
     do:
       CoordinatorBatchOrchestration.timeout(state, batch_id, CoordinatorRuntimeCallbacks.batch())

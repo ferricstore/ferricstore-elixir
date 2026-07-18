@@ -4,12 +4,14 @@ defmodule FerricStore.SDK.Native.CoordinatorRetryRuntime do
   alias FerricStore.RequestContext
 
   alias FerricStore.SDK.Native.{
-    CoordinatorReply,
     CoordinatorRequestRuntime,
+    CoordinatorRetryReply,
+    CoordinatorRetryResume,
     CoordinatorRetryTarget,
     CoordinatorTimers,
     RequestRegistry,
     RetryPolicy,
+    RetryScheduler,
     Topology,
     TopologyRuntime
   }
@@ -52,16 +54,23 @@ defmodule FerricStore.SDK.Native.CoordinatorRetryRuntime do
       {request, state} ->
         CoordinatorTimers.cancel(request.timer)
         result = {:error, {:retry_failed, request.original_reason, reason}}
-        {:noreply, state} = reply_or_return(state, request, result, callbacks)
+        {:noreply, state} = CoordinatorRetryReply.run(state, request, result, callbacks)
         callbacks.resume_wire_slots.(state)
     end
   end
+
+  @spec resume(State.t(), reference(), map()) :: {:noreply, State.t()}
+  defdelegate resume(state, tag, callbacks), to: CoordinatorRetryResume, as: :run
 
   defp retry(state, request, original_reason, callbacks) do
     request = %{request | attempt: 1, original_reason: original_reason}
     lane_id = Map.get(request, :lane_id, callbacks.default_lane.(request.opcode))
     {tag, state} = CoordinatorRequestRuntime.register(state, request, lane_id)
-    callbacks.start_refresh.(state, {:request_retry, tag})
+
+    case RetryScheduler.request(tag, original_reason) do
+      :ready -> callbacks.start_refresh.(state, {:request_retry, tag})
+      :waiting -> {:noreply, state}
+    end
   end
 
   defp dispatch_pending(state, tag, %{kind: :routed} = request, callbacks) do
@@ -143,15 +152,5 @@ defmodule FerricStore.SDK.Native.CoordinatorRetryRuntime do
       CoordinatorRequestRuntime.fail(state, tag, reason, callbacks.request_runtime)
 
     state
-  end
-
-  defp reply_or_return(state, %{kind: kind} = request, result, callbacks)
-       when kind in [:event_subscribe, :event_unsubscribe],
-       do: callbacks.reply_completed.(state, request, result)
-
-  defp reply_or_return(state, request, result, _callbacks) do
-    CoordinatorTimers.demonitor(Map.get(request, :caller_monitor))
-    CoordinatorReply.reply(request.from, result)
-    {:noreply, state}
   end
 end

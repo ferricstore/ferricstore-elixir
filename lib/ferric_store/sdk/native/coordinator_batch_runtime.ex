@@ -9,7 +9,8 @@ defmodule FerricStore.SDK.Native.CoordinatorBatchRuntime do
     CoordinatorBatchCompletion,
     CoordinatorBatchWaiters,
     CoordinatorTimers,
-    RetryPolicy
+    RetryPolicy,
+    RetryScheduler
   }
 
   alias FerricStore.SDK.Native.Coordinator.State
@@ -39,7 +40,11 @@ defmodule FerricStore.SDK.Native.CoordinatorBatchRuntime do
   defp finish_active_preparation(state, batch, {:error, reason}, _ensure_connection) do
     if batch.attempt == 0 and RetryPolicy.retryable?(reason, batch.opcode, batch.opts) do
       batch = %{batch | attempt: 1, original_reason: reason, phase: :refreshing}
-      {:refresh, put_batch(state, batch), {:batch_retry, batch.id}}
+
+      case RetryScheduler.batch(batch.id, reason) do
+        :ready -> {:refresh, put_batch(state, batch), {:batch_retry, batch.id}}
+        :waiting -> {:ok, put_batch(state, batch)}
+      end
     else
       {_batch, batch_scheduler} = BatchScheduler.pop(state.batch_scheduler, batch.id)
       state = %{state | batch_scheduler: batch_scheduler}
@@ -101,6 +106,18 @@ defmodule FerricStore.SDK.Native.CoordinatorBatchRuntime do
 
   def fail_retry(state, batch_id, reason),
     do: CoordinatorBatchCompletion.fail_retry(state, batch_id, reason)
+
+  def resume_retry(state, batch_id) do
+    case BatchScheduler.get(state.batch_scheduler, batch_id) do
+      nil ->
+        {:ok, state}
+
+      batch ->
+        if CoordinatorTimers.expired?(batch.opts),
+          do: timeout(state, batch_id),
+          else: {:refresh, state, {:batch_retry, batch_id}}
+    end
+  end
 
   def resume_waiting_connections(state, limit, advance_connections),
     do: CoordinatorBatchWaiters.resume_capacity(state, limit, advance_connections)

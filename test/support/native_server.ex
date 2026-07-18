@@ -33,6 +33,18 @@ defmodule FerricStore.Test.NativeServer do
       "auth_required" => false,
       "capabilities" => %{
         "protocol_versions" => [1],
+        "limits" => %{"max_response_bytes" => 64 * 1024 * 1024},
+        "response_codecs" => %{
+          "compact_response_opcodes" => %{
+            "flow_claim_jobs_v1" => [0x0203],
+            "flow_record_list_v1" => [0x020E, 0x0217, 0x0218, 0x0219, 0x021A, 0x021B, 0x021D],
+            "flow_record_v1" => [0x0202],
+            "kv_get_v1" => [0x0101],
+            "kv_mget_v1" => [0x0104, 0x020C],
+            "ok_list_v1" => [0x0102, 0x0105, 0x020F, 0x0210, 0x0212, 0x0213, 0x0214],
+            "pipeline_v1" => [0x000E]
+          }
+        },
         "schemas" => schemas,
         "opcodes" => opcodes
       }
@@ -343,25 +355,32 @@ defmodule FerricStore.Test.NativeServer do
 
   defp default_response(_request, _port), do: "OK"
 
-  defp normalize_response({:raw_startup, payload}, %{opcode: 0x000C}), do: payload
+  defp normalize_response({:raw_startup, payload}, %{opcode: opcode})
+       when opcode in [0x0001, 0x000C],
+       do: payload
 
-  defp normalize_response({:reply, value, opts}, %{opcode: 0x000C}) when is_map(value),
-    do: {:reply, startup_payload(value), opts}
+  defp normalize_response({:reply, value, opts}, %{opcode: opcode})
+       when opcode in [0x0001, 0x000C] and is_map(value),
+       do: {:reply, startup_payload(value), opts}
 
-  defp normalize_response({:reply_after, delay, value, opts}, %{opcode: 0x000C})
-       when is_map(value),
+  defp normalize_response({:reply_after, delay, value, opts}, %{opcode: opcode})
+       when opcode in [0x0001, 0x000C] and is_map(value),
        do: {:reply_after, delay, startup_payload(value), opts}
 
-  defp normalize_response({:reply, value}, %{opcode: 0x000C}) when is_map(value),
-    do: {:reply, startup_payload(value)}
+  defp normalize_response({:reply, value}, %{opcode: opcode})
+       when opcode in [0x0001, 0x000C] and is_map(value),
+       do: {:reply, startup_payload(value)}
 
-  defp normalize_response({:reply_after, delay, value}, %{opcode: 0x000C}) when is_map(value),
-    do: {:reply_after, delay, startup_payload(value)}
+  defp normalize_response({:reply_after, delay, value}, %{opcode: opcode})
+       when opcode in [0x0001, 0x000C] and is_map(value),
+       do: {:reply_after, delay, startup_payload(value)}
 
-  defp normalize_response(value, %{opcode: 0x000C}) when is_map(value),
-    do: startup_payload(value)
+  defp normalize_response(value, %{opcode: opcode})
+       when opcode in [0x0001, 0x000C] and is_map(value),
+       do: startup_payload(value)
 
-  defp normalize_response("OK", %{opcode: 0x000C}), do: startup_payload()
+  defp normalize_response("OK", %{opcode: opcode}) when opcode in [0x0001, 0x000C],
+    do: startup_payload()
 
   defp normalize_response(response, _request), do: response
 

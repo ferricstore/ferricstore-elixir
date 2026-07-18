@@ -133,7 +133,7 @@ defmodule FerricStore.SDK.Native.KVBatchPreparerTest do
              KVBatchPreparer.prepare(topology, :mset, [{oversized, "value"}], context)
   end
 
-  test "MSET groups by hash slot and requires explicit per-slot partial atomicity" do
+  test "MSET groups by hash slot and rejects cross-slot writes" do
     {:ok, topology} = Topology.build(topology_payload())
     [first, second] = keys_in_distinct_slots()
     pairs = [{first, "first"}, {second, "second"}]
@@ -144,7 +144,7 @@ defmodule FerricStore.SDK.Native.KVBatchPreparerTest do
         5_000
       )
 
-    assert {:error, {:multi_slot_write_requires_explicit_policy, :mset}} =
+    assert {:error, {:cross_slot_keys, :mset}} =
              KVBatchPreparer.prepare(topology, :mset, pairs, atomic)
 
     per_slot = RequestContext.new([timeout: :infinity, atomicity: :per_slot], 5_000)

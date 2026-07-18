@@ -12,6 +12,8 @@ defmodule FerricStore.SDK do
   alias FerricStore.SDK.Management
   alias FerricStore.SDK.Native.{Client, ClientOptions, Topology}
 
+  defdelegate minimum_server_version(), to: FerricStore.Compatibility
+
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) when is_list(opts) do
     %{
@@ -62,6 +64,7 @@ defmodule FerricStore.SDK do
   defdelegate del(client, key_or_keys, opts \\ []), to: KV
   defdelegate mget(client, keys, opts \\ []), to: KV
   defdelegate mset(client, pairs, opts \\ []), to: KV
+  defdelegate msetnx(client, pairs, opts \\ []), to: KV
   defdelegate cas(client, key, expected, value, opts \\ []), to: KV
   defdelegate lock(client, key, owner, ttl_ms, opts \\ []), to: KV
   defdelegate unlock(client, key, owner, opts \\ []), to: KV

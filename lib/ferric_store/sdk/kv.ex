@@ -29,6 +29,11 @@ defmodule FerricStore.SDK.KV do
   def mset(client, pairs, opts \\ []),
     do: Runtime.call(:mset, opts, &CollectionCommands.mset(client, pairs, &1))
 
+  @spec msetnx(client(), %{binary() => binary()} | [{binary(), binary()}], keyword()) ::
+          {:ok, boolean()} | {:error, term()}
+  def msetnx(client, pairs, opts \\ []),
+    do: Runtime.call(:msetnx, opts, &CollectionCommands.msetnx(client, pairs, &1))
+
   @spec cas(client(), binary(), binary(), binary(), keyword()) ::
           {:ok, boolean() | nil} | {:error, term()}
   def cas(client, key, expected, value, opts \\ []),

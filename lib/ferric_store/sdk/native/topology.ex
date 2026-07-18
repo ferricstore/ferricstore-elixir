@@ -72,6 +72,14 @@ defmodule FerricStore.SDK.Native.Topology do
     end
   end
 
+  def route_key(%__MODULE__{} = topology, {:slot, slot})
+      when is_integer(slot) and slot >= 0 and slot < @num_slots do
+    case elem(topology.slots, slot) do
+      nil -> {:error, {:unmapped_slot, slot}}
+      route -> {:ok, Map.put(route, :slot, slot)}
+    end
+  end
+
   def route_key(%__MODULE__{}, key), do: RouteKey.validate(key)
 
   @spec slot_for_key(binary()) :: non_neg_integer()

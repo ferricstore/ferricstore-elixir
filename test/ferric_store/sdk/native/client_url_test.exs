@@ -13,12 +13,10 @@ defmodule FerricStore.SDK.Native.ClientURLTest do
 
     assert_receive {:native_server_request,
                     %{
-                      opcode: 0x000C,
+                      opcode: 0x0001,
                       payload: %{
                         "client_name" => "ferricstore-elixir-sdk",
-                        "compact_flow_responses" => true,
-                        "compression" => "none",
-                        "driver_name" => "ferricstore-elixir-sdk"
+                        "compression" => "none"
                       }
                     }}
 
@@ -45,7 +43,7 @@ defmodule FerricStore.SDK.Native.ClientURLTest do
                password: "option-pass"
              )
 
-    assert_receive {:native_server_request, %{opcode: 0x000C}}
+    assert_receive {:native_server_request, %{opcode: 0x0001}}
 
     assert_receive {:native_server_request,
                     %{
@@ -64,7 +62,7 @@ defmodule FerricStore.SDK.Native.ClientURLTest do
     port = NativeServer.port(server)
 
     assert {:ok, client} = SDK.from_url("ferric://:secret@127.0.0.1:#{port}")
-    assert_receive {:native_server_request, %{opcode: 0x000C}}
+    assert_receive {:native_server_request, %{opcode: 0x0001}}
 
     assert_receive {:native_server_request,
                     %{

@@ -4,7 +4,7 @@ defmodule FerricStore.SDK.KV.CollectionCommands do
   alias FerricStore.Protocol.Opcodes
   alias FerricStore.RequestContext
   alias FerricStore.RouteKey
-  alias FerricStore.SDK.KV.{Input, MultiKeyCommands, Response}
+  alias FerricStore.SDK.KV.{Input, MSetNXCommands, MultiKeyCommands, Response}
   alias FerricStore.SDK.Native.KVRequests
   @type client :: pid()
 
@@ -19,6 +19,10 @@ defmodule FerricStore.SDK.KV.CollectionCommands do
   @spec mset(client(), %{binary() => binary()} | [{binary(), binary()}], RequestContext.t()) ::
           {:ok, :ok} | {:error, term()}
   def mset(client, pairs, opts), do: MultiKeyCommands.mset(client, pairs, opts)
+
+  @spec msetnx(client(), %{binary() => binary()} | [{binary(), binary()}], RequestContext.t()) ::
+          {:ok, boolean()} | {:error, term()}
+  def msetnx(client, pairs, opts), do: MSetNXCommands.msetnx(client, pairs, opts)
 
   @spec hset(client(), binary(), %{binary() => binary()}, RequestContext.t()) ::
           {:ok, non_neg_integer()} | {:error, term()}

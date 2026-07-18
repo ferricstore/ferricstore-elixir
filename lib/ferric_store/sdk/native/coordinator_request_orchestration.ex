@@ -107,6 +107,9 @@ defmodule FerricStore.SDK.Native.CoordinatorRequestOrchestration do
   def dispatch_retried_pending_request(state, tag, callbacks),
     do: CoordinatorRetryRuntime.dispatch_pending(state, tag, callbacks)
 
+  def resume_retried_pending_request(state, tag, callbacks),
+    do: CoordinatorRetryRuntime.resume(state, tag, callbacks)
+
   def fail_retried_pending_request(state, tag, reason, callbacks),
     do:
       CoordinatorRetryRuntime.fail_pending(

@@ -9,6 +9,40 @@ defmodule FerricStore.SDK.Native.ServerContractTest do
     assert :ok = ServerContract.validate(NativeServer.startup_payload())
   end
 
+  test "requires the v0.8 response limit and compact codec advertisements" do
+    startup = NativeServer.startup_payload()
+
+    for path <- [
+          ["capabilities", "limits", "max_response_bytes"],
+          ["capabilities", "response_codecs", "compact_response_opcodes"]
+        ] do
+      incompatible = pop_in(startup, path) |> elem(1)
+
+      assert {:error, {:incompatible_server_contract, _details}} =
+               ServerContract.validate(incompatible)
+    end
+  end
+
+  test "rejects malformed, unsupported, and multiply-owned compact response codecs" do
+    invalid_tables = [
+      %{"kv_get_v1" => [0x0101, 0x0101]},
+      %{"future_codec_v1" => [0x0101]},
+      %{"kv_get_v1" => [0x0101], "kv_mget_v1" => [0x0101]}
+    ]
+
+    Enum.each(invalid_tables, fn table ->
+      startup =
+        NativeServer.startup_payload(%{
+          "capabilities" => %{
+            "response_codecs" => %{"compact_response_opcodes" => table}
+          }
+        })
+
+      assert {:error, {:incompatible_server_contract, %{invalid_compact_response_opcodes: _}}} =
+               ServerContract.validate(startup)
+    end)
+  end
+
   test "rejects a session negotiated at a different protocol version" do
     startup = NativeServer.startup_payload(%{"version" => 2})
 
