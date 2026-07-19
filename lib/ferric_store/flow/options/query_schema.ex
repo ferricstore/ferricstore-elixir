@@ -66,7 +66,16 @@ defmodule FerricStore.Flow.Options.QuerySchema do
        ] ++ @codec ++ @transport},
     policy_set:
       {[],
-       [:indexed_state_meta, :indexed_attributes, :max_active_ms, :retry, :retention, :states] ++
+       [
+         :replace,
+         :expected_generation,
+         :indexed_state_meta,
+         :indexed_attributes,
+         :max_active_ms,
+         :retry,
+         :retention,
+         :states
+       ] ++
          @transport},
     policy_get: {[], [:state | @transport]},
     search:

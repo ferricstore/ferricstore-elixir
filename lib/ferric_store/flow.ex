@@ -35,7 +35,21 @@ defmodule FerricStore.Flow do
   def claim_due(client, type, opts), do: QueryCommands.claim_due(client, type, opts)
   def search(client, opts \\ []), do: QueryCommands.search(client, opts)
 
+  @doc """
+  Deep-patches a Flow type policy and returns its typed snapshot.
+
+  Pass `replace: true` for full replacement. Pass `expected_generation` from a
+  prior `FerricStore.Flow.PolicySnapshot` for compare-and-swap. CAS mutations
+  are never retried automatically.
+  """
+  @spec policy_set(pid(), binary(), keyword()) ::
+          FerricStore.Flow.PolicySnapshot.t()
+          | {:error, FerricStore.Error.t() | FerricStore.Flow.StalePolicyGenerationError.t()}
   def policy_set(client, type, opts \\ []), do: PolicyCommands.set(client, type, opts)
+
+  @doc "Returns the typed policy snapshot and its monotonic `generation`."
+  @spec policy_get(pid(), binary(), keyword()) ::
+          FerricStore.Flow.PolicySnapshot.t() | {:error, FerricStore.Error.t()}
   def policy_get(client, type, opts \\ []), do: PolicyCommands.get(client, type, opts)
   def value_put(client, value, opts \\ []), do: ValueCommands.put(client, value, opts)
   def value_mget(client, refs, opts \\ []), do: ValueCommands.mget(client, refs, opts)

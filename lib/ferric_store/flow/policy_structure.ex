@@ -4,7 +4,9 @@ defmodule FerricStore.Flow.PolicyStructure do
   alias FerricStore.DeadlineBudget
   alias FerricStore.Flow.{PolicyOptionStructure, PolicyStateStructure}
 
-  @set_options ~w(indexed_state_meta indexed_attributes max_active_ms retry retention states)
+  @set_options ~w(
+    expected_generation replace indexed_state_meta indexed_attributes max_active_ms retry retention states
+  )
 
   def set_options(opts) do
     with {:ok, options} <- PolicyOptionStructure.option_map(opts),

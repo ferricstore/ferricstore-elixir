@@ -34,6 +34,7 @@ defmodule FerricStore do
   defdelegate yield(request, timeout \\ 0), to: Client
   defdelegate cancel_async(request), to: Client
   defdelegate minimum_server_version(), to: Compatibility
+  defdelegate server_version_requirement(), to: Compatibility
 
   def command(client, command, args \\ [], opts \\ []) do
     Client.command(client, command, args, opts)

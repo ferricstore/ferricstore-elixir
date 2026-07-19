@@ -3,6 +3,8 @@ defmodule FerricStore.Protocol.CapabilityOptionalFields.FlowPolicy do
 
   @fields %{
     "FLOW.POLICY.SET" => [
+      "expected_generation",
+      "replace",
       "max_active_ms",
       "retry",
       "retention",

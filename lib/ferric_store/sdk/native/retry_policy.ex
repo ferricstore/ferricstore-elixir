@@ -6,6 +6,8 @@ defmodule FerricStore.SDK.Native.RetryPolicy do
   alias FerricStore.Types
 
   @spec retryable?(term(), non_neg_integer(), RequestContext.t()) :: boolean()
+  def retryable?(_reason, _opcode, %RequestContext{automatic_retry: false}), do: false
+
   def retryable?({:connect_failed, _reason}, _opcode, %RequestContext{}), do: true
 
   def retryable?({status, payload}, _opcode, %RequestContext{})

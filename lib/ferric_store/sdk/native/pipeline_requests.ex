@@ -3,7 +3,7 @@ defmodule FerricStore.SDK.Native.PipelineRequests do
 
   alias FerricStore.{AsyncDelivery, AsyncRequest, RequestContext, RequestOptions}
   alias FerricStore.Protocol.{Opcodes, PipelineRequest}
-  alias FerricStore.SDK.Native.{CoordinatorCall, PipelineAdmission}
+  alias FerricStore.SDK.Native.{CoordinatorCall, PipelineAdmission, RequestRetrySafety}
 
   @default_timeout 5_000
   @max_pipeline_commands 100_000
@@ -17,8 +17,9 @@ defmodule FerricStore.SDK.Native.PipelineRequests do
     with :ok <- validate_pipeline_options(pipeline_options),
          {:ok, context} <- request_context(opts),
          :ok <- RequestContext.ensure_active(context),
-         {:ok, command_count} <- command_count(commands, context),
+         {:ok, command_count, generation_cas?} <- command_count(commands, context),
          :ok <- RequestContext.ensure_active(context) do
+      context = RequestRetrySafety.classify(context, generation_cas?)
       context = RequestContext.with_batch_item_count(context, command_count)
 
       payload = %PipelineRequest{
@@ -47,8 +48,9 @@ defmodule FerricStore.SDK.Native.PipelineRequests do
       with :ok <- validate_pipeline_options(pipeline_options),
            {:ok, context} <- request_context(opts),
            :ok <- RequestContext.ensure_active(context),
-           {:ok, command_count} <- command_count(commands, context),
+           {:ok, command_count, generation_cas?} <- command_count(commands, context),
            :ok <- RequestContext.ensure_active(context) do
+        context = RequestRetrySafety.classify(context, generation_cas?)
         context = RequestContext.with_batch_item_count(context, command_count)
 
         payload = %PipelineRequest{

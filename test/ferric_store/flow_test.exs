@@ -3,6 +3,7 @@ defmodule FerricStore.FlowTest do
 
   alias FerricStore.Codec.Term
   alias FerricStore.Flow
+  alias FerricStore.Flow.PolicySnapshot
   alias FerricStore.Protocol
   alias FerricStore.Test.ClientRuntime
 
@@ -146,6 +147,16 @@ defmodule FerricStore.FlowTest do
                 unquote(FerricStore.Protocol.opcode(:flow_search))
               ],
          do: []
+
+    defp reply(opcode, payload)
+         when opcode in [
+                unquote(FerricStore.Protocol.opcode(:flow_policy_set)),
+                unquote(FerricStore.Protocol.opcode(:flow_policy_get))
+              ] do
+      payload
+      |> Map.drop(["expected_generation", "replace"])
+      |> Map.merge(%{"generation" => 1, "states" => Map.get(payload, "states", %{})})
+    end
 
     defp reply(_opcode, _payload), do: "OK"
   end
@@ -1621,7 +1632,11 @@ defmodule FerricStore.FlowTest do
 
     {:ok, client} = CaptureNativeClient.start_link(self())
 
-    assert "OK" =
+    assert %PolicySnapshot{
+             generation: 1,
+             indexed_attributes: [],
+             indexed_state_meta: []
+           } =
              Flow.policy_set(client, "review",
                indexed_attributes: [],
                indexed_state_meta: []
@@ -1640,7 +1655,12 @@ defmodule FerricStore.FlowTest do
   test "policy helpers use the canonical typed native contract" do
     {:ok, client} = CaptureNativeClient.start_link(self())
 
-    assert "OK" =
+    assert %PolicySnapshot{
+             type: "review",
+             generation: 1,
+             indexed_state_meta: "version",
+             states: %{"queued" => %{"mode" => :fifo}}
+           } =
              Flow.policy_set(client, "review",
                indexed_state_meta: "version",
                states: %{"queued" => [mode: :fifo]}
@@ -1655,7 +1675,8 @@ defmodule FerricStore.FlowTest do
 
     assert set_opcode == Protocol.opcode(:flow_policy_set)
 
-    assert "OK" = Flow.policy_get(client, "review", state: "queued")
+    assert %PolicySnapshot{type: "review", generation: 1, state: "queued"} =
+             Flow.policy_get(client, "review", state: "queued")
 
     assert_received {:native, get_opcode, %{"type" => "review", "state" => "queued"}, []}
     assert get_opcode == Protocol.opcode(:flow_policy_get)

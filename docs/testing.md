@@ -17,11 +17,9 @@ compatible FerricStore revision pinned by the SDK.
 scripts/test_integration.sh
 ```
 
-The script builds commit `72452814231f592aff051c22fdbe7114476e2879`, applies the
-SDK-owned build-only `open_how` initializer patch required by that revision,
-waits for native startup, runs `mix test --only integration`, and removes the
-container. The patch does not touch protocol or server behavior. Set
-`FERRICSTORE_TEST_IMAGE` to test a prebuilt compatible image instead.
+The script builds commit `11456cc0e5f099b72aac56ffe6acd8b6f3fd1624`, waits for
+native startup, runs `mix test --only integration`, and removes the container.
+Set `FERRICSTORE_TEST_IMAGE` to test a prebuilt compatible image instead.
 
 Use `FERRICSTORE_TEST_PORT` when the local port is different:
 

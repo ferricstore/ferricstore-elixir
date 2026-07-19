@@ -1,6 +1,7 @@
 defmodule FerricStore.SDK.FlowTest do
   use ExUnit.Case, async: true
 
+  alias FerricStore.Flow.PolicySnapshot
   alias FerricStore.Protocol.Opcodes
   alias FerricStore.RequestLimits
   alias FerricStore.SDK.Flow
@@ -8,6 +9,9 @@ defmodule FerricStore.SDK.FlowTest do
 
   defmodule CaptureClient do
     use GenServer
+
+    alias FerricStore.Protocol.Opcodes
+    alias FerricStore.RequestContext
 
     def start_link(test_pid),
       do:
@@ -24,16 +28,28 @@ defmodule FerricStore.SDK.FlowTest do
     end
 
     def handle_call({:request, opcode, payload, opts}, _from, test_pid) do
-      opts = FerricStore.RequestContext.options(opts)
+      opts = RequestContext.options(opts)
       send(test_pid, {:request, opcode, payload, opts})
-      {:reply, {:ok, payload}, test_pid}
+      {:reply, {:ok, reply(opcode, payload)}, test_pid}
     end
 
     def handle_call({:command, opcode, key, payload, opts}, _from, test_pid) do
-      opts = FerricStore.RequestContext.options(opts)
+      opts = RequestContext.options(opts)
       send(test_pid, {:request_by_key, opcode, key, payload, opts})
-      {:reply, {:ok, payload}, test_pid}
+      {:reply, {:ok, reply(opcode, payload)}, test_pid}
     end
+
+    defp reply(opcode, payload)
+         when opcode in [
+                unquote(Opcodes.flow_policy_set()),
+                unquote(Opcodes.flow_policy_get())
+              ] do
+      payload
+      |> Map.drop(["expected_generation", "replace"])
+      |> Map.merge(%{"generation" => 1, "states" => Map.get(payload, "states", %{})})
+    end
+
+    defp reply(_opcode, payload), do: payload
   end
 
   defmodule LimitedClient do
@@ -116,10 +132,11 @@ defmodule FerricStore.SDK.FlowTest do
 
   test "policy wrappers use typed native execution on the control path", %{client: client} do
     assert {:ok,
-            %{
-              "type" => "review",
-              "indexed_state_meta" => "version",
-              "states" => %{"queued" => %{"mode" => :fifo}}
+            %PolicySnapshot{
+              type: "review",
+              generation: 1,
+              indexed_state_meta: "version",
+              states: %{"queued" => %{"mode" => :fifo}}
             }} =
              Flow.policy_set(client, %{
                type: "review",

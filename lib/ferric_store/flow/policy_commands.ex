@@ -1,7 +1,14 @@
 defmodule FerricStore.Flow.PolicyCommands do
   @moduledoc false
 
-  alias FerricStore.Flow.{ArgumentValidator, CommandRuntime, PolicyCommand, RequestRuntime}
+  alias FerricStore.Flow.{
+    ArgumentValidator,
+    CommandRuntime,
+    PolicyCommand,
+    PolicyResponse,
+    RequestRuntime
+  }
+
   alias FerricStore.{Protocol, RequestContext, Result}
 
   def set(client, type, opts \\ []),
@@ -26,7 +33,10 @@ defmodule FerricStore.Flow.PolicyCommands do
   defp execute_payload(client, opcode, type, opts, context, payload_builder) do
     case payload_builder.(type, policy_options(opts), RequestContext.budget(context)) do
       {:ok, payload} ->
-        RequestRuntime.request(client, Protocol.opcode(opcode), payload, opts, context)
+        client
+        |> RequestRuntime.request_result(Protocol.opcode(opcode), payload, opts, context)
+        |> PolicyResponse.decode(type, payload)
+        |> Result.unwrap()
 
       {:error, reason} ->
         Result.error(reason)

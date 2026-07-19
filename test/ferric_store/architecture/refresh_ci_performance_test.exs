@@ -152,7 +152,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
   end
 
   test "CI and release validate against the pinned current server contract" do
-    server_ref = "72452814231f592aff051c22fdbe7114476e2879"
+    server_ref = "11456cc0e5f099b72aac56ffe6acd8b6f3fd1624"
 
     refute File.exists?(Path.expand("../../../scripts/server_build_compat.patch", __DIR__))
 

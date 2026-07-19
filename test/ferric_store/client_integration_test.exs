@@ -1,6 +1,7 @@
 defmodule FerricStore.ClientIntegrationTest do
   use ExUnit.Case, async: false
 
+  alias FerricStore.Flow.{PolicySnapshot, StalePolicyGenerationError}
   alias FerricStore.Protocol.Opcodes
   alias FerricStore.SDK
   alias FerricStore.SDK.{Admin, Flow}
@@ -486,10 +487,13 @@ defmodule FerricStore.ClientIntegrationTest do
     partition = "#{suffix}-partition"
     id = "#{suffix}-flow"
 
-    policy = FerricStore.Flow.policy_set(client, type, indexed_state_meta: "version")
-    assert policy["indexed_state_meta"] == "version"
+    assert %PolicySnapshot{indexed_state_meta: "version", generation: generation} =
+             FerricStore.Flow.policy_set(client, type, indexed_state_meta: "version")
 
-    assert FerricStore.Flow.policy_get(client, type)["indexed_state_meta"] == "version"
+    assert is_integer(generation) and generation > 0
+
+    assert %PolicySnapshot{indexed_state_meta: "version", generation: ^generation} =
+             FerricStore.Flow.policy_get(client, type)
 
     assert_okish(
       FerricStore.Flow.create(client, id,
@@ -521,6 +525,68 @@ defmodule FerricStore.ClientIntegrationTest do
     end)
   end
 
+  test "flow policy patch, replacement, and generation CAS use the 0.9.1 contract", %{
+    client: client
+  } do
+    type = unique("policy-generation")
+
+    assert %PolicySnapshot{
+             generation: first_generation,
+             max_active_ms: 30_000,
+             states: %{"queued" => %{"mode" => fifo_mode}}
+           } =
+             FerricStore.Flow.policy_set(client, type,
+               replace: true,
+               max_active_ms: 30_000,
+               states: %{"queued" => [mode: :fifo]}
+             )
+
+    assert fifo_mode in ["fifo", :fifo]
+
+    assert %PolicySnapshot{
+             generation: second_generation,
+             max_active_ms: 30_000,
+             indexed_state_meta: "version",
+             states: %{"queued" => %{"mode" => preserved_mode}}
+           } =
+             FerricStore.Flow.policy_set(client, type,
+               expected_generation: first_generation,
+               indexed_state_meta: "version"
+             )
+
+    assert second_generation == first_generation + 1
+    assert preserved_mode in ["fifo", :fifo]
+
+    assert %PolicySnapshot{
+             generation: third_generation,
+             max_active_ms: nil,
+             indexed_state_meta: nil,
+             states: %{}
+           } =
+             FerricStore.Flow.policy_set(client, type,
+               replace: true,
+               expected_generation: second_generation
+             )
+
+    assert third_generation == second_generation + 1
+
+    assert {:error,
+            %StalePolicyGenerationError{
+              expected_generation: ^first_generation,
+              message: "ERR stale flow policy generation"
+            }} =
+             FerricStore.Flow.policy_set(client, type,
+               expected_generation: first_generation,
+               max_active_ms: 90_000
+             )
+
+    assert %PolicySnapshot{
+             generation: ^third_generation,
+             max_active_ms: nil,
+             states: %{}
+           } = FerricStore.Flow.policy_get(client, type)
+  end
+
   test "flow FIFO state policy is opt-in and partition scoped", %{client: client} do
     suffix = unique("fifo-policy")
     type = "#{suffix}-type"
@@ -540,8 +606,8 @@ defmodule FerricStore.ClientIntegrationTest do
         }
       )
 
-    assert get_in(policy, ["states", "queued", "mode"]) in ["fifo", :fifo]
-    assert get_in(policy, ["states", "ready", "mode"]) in ["fifo", :fifo]
+    assert get_in(policy.states, ["queued", "mode"]) in ["fifo", :fifo]
+    assert get_in(policy.states, ["ready", "mode"]) in ["fifo", :fifo]
 
     assert_okish(
       FerricStore.Flow.create(client, "#{suffix}:parallel-default",
@@ -643,12 +709,12 @@ defmodule FerricStore.ClientIntegrationTest do
     priority_id = "#{suffix}:priority"
     missing_partition_id = "#{suffix}:missing-partition-id"
 
-    assert %{"states" => %{"ready" => %{"mode" => mode}}} =
+    assert %PolicySnapshot{states: %{"ready" => %{"mode" => mode}}} =
              FerricStore.Flow.policy_set(client, type, states: %{"ready" => [mode: :fifo]})
 
     assert mode in ["fifo", :fifo]
 
-    assert %{"states" => %{"ready" => %{"mode" => missing_mode}}} =
+    assert %PolicySnapshot{states: %{"ready" => %{"mode" => missing_mode}}} =
              FerricStore.Flow.policy_set(client, missing_type,
                states: %{"ready" => [mode: :fifo]}
              )
@@ -781,7 +847,8 @@ defmodule FerricStore.ClientIntegrationTest do
            indexed_state_meta: "version"
          }) do
       {:ok, policy} ->
-        assert policy["indexed_state_meta"] == "version"
+        assert %PolicySnapshot{indexed_state_meta: "version", generation: generation} = policy
+        assert is_integer(generation) and generation > 0
 
         assert {:ok, "OK"} =
                  FerricStore.SDK.Flow.create(client, %{

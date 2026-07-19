@@ -5,7 +5,7 @@
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.3.0"}
+    {:ferricstore_sdk, "~> 0.4.0"}
   ]
 end
 ```
@@ -16,11 +16,11 @@ mix deps.get
 
 ## Start FerricStore
 
-This SDK requires FerricStore 0.8.0 or newer. The API contract changed at 0.8,
+This SDK requires FerricStore `~> 0.9.1`. The beta API contract changed at 0.9,
 while native framing remains protocol v1.
 
 From an SDK checkout, build the pinned server revision
-`72452814231f592aff051c22fdbe7114476e2879` with the integration helper:
+`11456cc0e5f099b72aac56ffe6acd8b6f3fd1624` with the integration helper:
 
 ```bash
 FERRICSTORE_TEST_IMAGE=ferricstore-sdk-contract \

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-SERVER_REF="${FERRICSTORE_SERVER_REF:-72452814231f592aff051c22fdbe7114476e2879}"
+SERVER_REF="${FERRICSTORE_SERVER_REF:-11456cc0e5f099b72aac56ffe6acd8b6f3fd1624}"
 IMAGE="${FERRICSTORE_TEST_IMAGE:-ferricstore-sdk-contract:${SERVER_REF:0:12}}"
 CONTAINER="${FERRICSTORE_TEST_CONTAINER:-ferricstore-elixir-integration-$$}"
 HOST="${FERRICSTORE_TEST_HOST:-127.0.0.1}"

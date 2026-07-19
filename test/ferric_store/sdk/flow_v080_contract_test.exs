@@ -1,6 +1,7 @@
 defmodule FerricStore.SDK.FlowV080ContractTest do
   use ExUnit.Case, async: true
 
+  alias FerricStore.Flow.PolicySnapshot
   alias FerricStore.Protocol
   alias FerricStore.Protocol.Opcodes
   alias FerricStore.SDK.Flow
@@ -8,6 +9,8 @@ defmodule FerricStore.SDK.FlowV080ContractTest do
 
   defmodule CaptureClient do
     use GenServer
+
+    alias FerricStore.Protocol.Opcodes
 
     def start_link(owner),
       do: GenServer.start_link(__MODULE__, owner) |> ClientRuntime.wrap()
@@ -23,13 +26,18 @@ defmodule FerricStore.SDK.FlowV080ContractTest do
 
     def handle_call({:request, opcode, payload, _context}, _from, owner) do
       send(owner, {:flow_request, opcode, nil, payload})
-      {:reply, {:ok, payload}, owner}
+      {:reply, {:ok, reply(opcode, payload)}, owner}
     end
 
     def handle_call({:command, opcode, route, payload, _context}, _from, owner) do
       send(owner, {:flow_request, opcode, route, payload})
-      {:reply, {:ok, payload}, owner}
+      {:reply, {:ok, reply(opcode, payload)}, owner}
     end
+
+    defp reply(unquote(Opcodes.flow_policy_set()), payload),
+      do: Map.merge(payload, %{"generation" => 1, "states" => %{}})
+
+    defp reply(_opcode, payload), do: payload
   end
 
   setup do
@@ -78,10 +86,12 @@ defmodule FerricStore.SDK.FlowV080ContractTest do
   end
 
   test "type policy carries max_active_ms infinity on the control path", %{client: client} do
-    assert {:ok, %{"type" => "email", "max_active_ms" => :infinity} = payload} =
+    assert {:ok, %PolicySnapshot{type: "email", generation: 1, max_active_ms: :infinity}} =
              Flow.policy_set(client, %{type: "email", max_active_ms: :infinity})
 
-    assert_receive {:flow_request, opcode, nil, ^payload}
+    assert_receive {:flow_request, opcode, nil,
+                    %{"type" => "email", "max_active_ms" => :infinity}}
+
     assert opcode == Opcodes.flow_policy_set()
   end
 end

@@ -13,6 +13,7 @@ defmodule FerricStore.SDK do
   alias FerricStore.SDK.Native.{Client, ClientOptions, Topology}
 
   defdelegate minimum_server_version(), to: FerricStore.Compatibility
+  defdelegate server_version_requirement(), to: FerricStore.Compatibility
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) when is_list(opts) do

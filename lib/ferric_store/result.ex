@@ -6,6 +6,7 @@ defmodule FerricStore.Result do
   @spec unwrap(term()) :: term()
   def unwrap({:ok, value}), do: value
   def unwrap({:error, %Error{} = error}), do: {:error, error}
+  def unwrap({:error, %{__exception__: true} = error}), do: {:error, error}
   def unwrap({:error, reason}), do: error(reason)
   def unwrap(value), do: value
 

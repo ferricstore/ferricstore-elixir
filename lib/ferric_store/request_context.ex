@@ -6,12 +6,13 @@ defmodule FerricStore.RequestContext do
   @internal_options [:__batch_item_count__, :__client_deadline__]
 
   @enforce_keys [:options, :deadline]
-  defstruct [:batch_item_count, :deadline, options: []]
+  defstruct [:batch_item_count, :deadline, options: [], automatic_retry: true]
 
   @type t :: %__MODULE__{
           options: keyword(),
           deadline: DeadlineBudget.t(),
-          batch_item_count: non_neg_integer() | nil
+          batch_item_count: non_neg_integer() | nil,
+          automatic_retry: boolean()
         }
 
   @spec new(keyword(), timeout(), non_neg_integer() | nil) :: t()
@@ -46,6 +47,10 @@ defmodule FerricStore.RequestContext do
   def with_batch_item_count(%__MODULE__{} = context, item_count)
       when is_nil(item_count) or (is_integer(item_count) and item_count >= 0),
       do: %{context | batch_item_count: item_count}
+
+  @spec disable_automatic_retry(t()) :: t()
+  def disable_automatic_retry(%__MODULE__{} = context),
+    do: %{context | automatic_retry: false}
 
   @spec remaining(t()) :: timeout()
   def remaining(%__MODULE__{deadline: deadline}), do: DeadlineBudget.remaining(deadline)

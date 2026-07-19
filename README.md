@@ -2,8 +2,8 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public beta `0.3.0`. This release requires FerricStore 0.8.0 or newer.
-FerricStore 0.8 is a breaking beta API contract; native wire framing remains
+Status: public beta `0.4.0`. This release requires FerricStore `~> 0.9.1`.
+FerricStore 0.9 is a breaking beta API contract; native wire framing remains
 protocol v1. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
@@ -30,7 +30,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.3.0"}
+    {:ferricstore_sdk, "~> 0.4.0"}
   ]
 end
 ```
@@ -45,7 +45,7 @@ mix test
 ### 2. Start FerricStore
 
 For local development, build server revision
-`72452814231f592aff051c22fdbe7114476e2879` with the SDK helper and run it:
+`11456cc0e5f099b72aac56ffe6acd8b6f3fd1624` with the SDK helper and run it:
 
 ```bash
 FERRICSTORE_TEST_IMAGE=ferricstore-sdk-contract \
@@ -176,7 +176,8 @@ State metadata is stored per flow state. A flow type may choose one state
 metadata key for server-side indexing:
 
 ```elixir
-FerricStore.Flow.policy_set(client, "order", indexed_state_meta: "version")
+%FerricStore.Flow.PolicySnapshot{generation: generation} =
+  FerricStore.Flow.policy_set(client, "order", indexed_state_meta: "version")
 
 FerricStore.Flow.create(client, "order-2",
   type: "order",
@@ -208,6 +209,20 @@ FerricStore.Flow.create(client, "order-3",
   payload: "payload"
 )
 ```
+
+Direct policy updates deep-patch by default. Use `replace: true` to reset
+omitted fields, or compare-and-swap against a snapshot generation:
+
+```elixir
+FerricStore.Flow.policy_set(client, "order",
+  expected_generation: generation,
+  states: %{"created" => [mode: :fifo]}
+)
+```
+
+Stale generations return `FerricStore.Flow.StalePolicyGenerationError` and are
+never retried automatically. `Workflow.install_policy/2` uses full replacement
+by default because a workflow declaration is a complete policy snapshot.
 
 Use `FerricStore.SDK` when you want explicit `{:ok, value}` results and the
 complete topology-aware API surface:

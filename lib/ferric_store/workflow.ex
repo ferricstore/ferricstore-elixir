@@ -20,6 +20,15 @@ defmodule FerricStore.Workflow do
     codec: FerricStore.Codec.Raw
   ]
 
+  @type t :: %__MODULE__{
+          client: pid(),
+          type: binary(),
+          initial_state: binary(),
+          worker: binary(),
+          lease_ms: pos_integer(),
+          codec: module()
+        }
+
   @config_defaults [
     initial_state: "queued",
     worker: "elixir-workflow",
@@ -54,6 +63,23 @@ defmodule FerricStore.Workflow do
       ],
       opts,
       &Flow.claim_due(workflow.client, workflow.type, &1)
+    )
+  end
+
+  @doc """
+  Installs this workflow's Flow policy.
+
+  Workflow declarations replace the stored policy by default. Pass
+  `replace: false` to request an explicit deep patch, and use
+  `expected_generation` for compare-and-swap installation.
+  """
+  @spec install_policy(t(), keyword()) :: FerricStore.Flow.PolicySnapshot.t() | {:error, term()}
+  def install_policy(%__MODULE__{} = workflow, opts \\ []) do
+    with_flow_options(
+      :policy_set,
+      [replace: true],
+      opts,
+      &Flow.policy_set(workflow.client, workflow.type, &1)
     )
   end
 

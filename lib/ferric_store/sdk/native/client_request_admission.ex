@@ -3,7 +3,7 @@ defmodule FerricStore.SDK.Native.ClientRequestAdmission do
 
   alias FerricStore.{BoundedList, RequestContext, RequestLimits, RequestOptions}
   alias FerricStore.Protocol.{CommandName, PipelineRequest, PreparedMap}
-  alias FerricStore.SDK.Native.ClientOptions
+  alias FerricStore.SDK.Native.{ClientOptions, RequestRetrySafety}
 
   @max_batch_items RequestLimits.max_batch_items()
   @max_command_items RequestLimits.max_command_items()
@@ -16,8 +16,7 @@ defmodule FerricStore.SDK.Native.ClientRequestAdmission do
     end
   end
 
-  @spec context(keyword(), timeout(), [atom()]) ::
-          {:ok, RequestContext.t()} | {:error, term()}
+  @spec context(keyword(), timeout(), [atom()]) :: {:ok, RequestContext.t()} | {:error, term()}
   def context(opts, default_timeout, supported_options) do
     context(opts, default_timeout, supported_options, [])
   end
@@ -43,7 +42,8 @@ defmodule FerricStore.SDK.Native.ClientRequestAdmission do
              RequestContext.budget(context)
            ),
          :ok <- RequestContext.ensure_active(context) do
-      {:ok, RequestContext.with_batch_item_count(context, item_count)}
+      context = RequestContext.with_batch_item_count(context, item_count)
+      {:ok, RequestRetrySafety.classify(opcode, payload, context)}
     end
   end
 

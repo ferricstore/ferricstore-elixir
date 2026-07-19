@@ -97,6 +97,12 @@ FerricStore.Flow.policy_set(client, "order",
 Records that enter FIFO states must use `partition_key`. Do not set `priority`
 on FIFO records or transitions; the server rejects priority for FIFO states.
 
+Policy reads and writes return `%FerricStore.Flow.PolicySnapshot{}` with a
+monotonic `generation`. Direct writes deep-patch by default; pass
+`replace: true` for full replacement or `expected_generation: generation` for
+compare-and-swap. A stale CAS returns
+`FerricStore.Flow.StalePolicyGenerationError` and is never retried.
+
 ## `FerricStore.Queue`
 
 Small durable queue helper.

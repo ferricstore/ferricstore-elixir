@@ -1,16 +1,17 @@
 defmodule FerricStore.Protocol.PipelineCommand do
   @moduledoc false
 
-  alias FerricStore.Protocol.{CommandSpec, PipelineRawCommand}
+  alias FerricStore.Protocol.{CommandName, CommandSpec, PipelineRawCommand}
   alias FerricStore.Types
 
   @command_exec_opcode CommandSpec.fetch!(:command_exec).opcode
+  @flow_policy_set_opcode CommandSpec.fetch!(:flow_policy_set).opcode
   @supported_fields MapSet.new(["opcode", "body", "lane_id", "request_id"])
 
-  @spec validate(term(), non_neg_integer()) :: :ok | {:error, term()}
+  @spec validate(term(), non_neg_integer()) :: {:ok, boolean()} | {:error, term()}
   def validate(command, index) when is_integer(index) and index >= 0 do
     case fields(command, index) do
-      {:ok, _fields} -> :ok
+      {:ok, fields} -> {:ok, generation_cas?(fields)}
       {:error, _reason} = error -> error
     end
   end
@@ -41,6 +42,18 @@ defmodule FerricStore.Protocol.PipelineCommand do
         error
     end
   end
+
+  defp generation_cas?({:typed, @flow_policy_set_opcode, body, _lane_id, _request_id}),
+    do: not is_nil(Types.get(body, "expected_generation"))
+
+  defp generation_cas?({:raw, "FLOW.POLICY.SET", [_type | args]}),
+    do:
+      Enum.any?(
+        args,
+        &match?({:ok, "EXPECTED_GENERATION"}, CommandName.normalize(&1))
+      )
+
+  defp generation_cas?(_fields), do: false
 
   defp fields([name | args], index), do: PipelineRawCommand.fields(name, args, index)
   defp fields(command, index) when is_map(command), do: typed_fields(command, index)

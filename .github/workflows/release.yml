@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: ferricstore/ferricstore
-          ref: 72452814231f592aff051c22fdbe7114476e2879
+          ref: 11456cc0e5f099b72aac56ffe6acd8b6f3fd1624
           path: ferricstore-server
       - uses: erlef/setup-beam@v1
         with:

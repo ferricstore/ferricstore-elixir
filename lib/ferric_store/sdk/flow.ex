@@ -7,7 +7,7 @@ defmodule FerricStore.SDK.Flow do
   aggregate commands use the control connection.
   """
 
-  alias FerricStore.Flow.PolicyCommand
+  alias FerricStore.Flow.{PolicyCommand, PolicyResponse}
   alias FerricStore.FlowRouting
   alias FerricStore.Protocol.Opcodes
   alias FerricStore.RequestContext
@@ -100,6 +100,15 @@ defmodule FerricStore.SDK.Flow do
     end
   end
 
+  @doc """
+  Deep-patches a Flow policy and returns `{:ok, PolicySnapshot.t()}`.
+
+  Set `replace` to `true` for full replacement. An `expected_generation` CAS
+  mutation is never retried automatically.
+  """
+  @spec policy_set(pid(), map(), keyword()) ::
+          {:ok, FerricStore.Flow.PolicySnapshot.t()}
+          | {:error, FerricStore.Flow.StalePolicyGenerationError.t() | term()}
   def policy_set(client, payload \\ %{}, opts \\ []) do
     with :ok <- validate_payload(payload),
          {:ok, opcode} <- Opcodes.fetch(:flow_policy_set),
@@ -113,10 +122,15 @@ defmodule FerricStore.SDK.Flow do
              RequestContext.budget(context)
            ),
          :ok <- RequestContext.ensure_active(context) do
-      dispatch(client, opcode, normalized, opts, context)
+      client
+      |> dispatch(opcode, normalized, opts, context)
+      |> PolicyResponse.decode(type, normalized)
     end
   end
 
+  @doc "Returns `{:ok, PolicySnapshot.t()}` including its monotonic generation."
+  @spec policy_get(pid(), map(), keyword()) ::
+          {:ok, FerricStore.Flow.PolicySnapshot.t()} | {:error, term()}
   def policy_get(client, payload \\ %{}, opts \\ []) do
     with :ok <- validate_payload(payload),
          {:ok, opcode} <- Opcodes.fetch(:flow_policy_get),
@@ -130,7 +144,9 @@ defmodule FerricStore.SDK.Flow do
              RequestContext.budget(context)
            ),
          :ok <- RequestContext.ensure_active(context) do
-      dispatch(client, opcode, normalized, opts, context)
+      client
+      |> dispatch(opcode, normalized, opts, context)
+      |> PolicyResponse.decode(type, normalized)
     end
   end
 
