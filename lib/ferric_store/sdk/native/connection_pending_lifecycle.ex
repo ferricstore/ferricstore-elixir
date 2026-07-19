@@ -54,6 +54,9 @@ defmodule FerricStore.SDK.Native.ConnectionPendingLifecycle do
   def reply({:message, reply_to, tag}, result),
     do: send(reply_to, {:ferricstore_connection_response, self(), tag, result})
 
+  def reply({:acknowledged_message, reply_to, tag}, result),
+    do: send(reply_to, {:ferricstore_connection_response, self(), tag, result})
+
   def reply(:heartbeat, _result), do: :ok
   def reply(:discard, _result), do: :ok
 

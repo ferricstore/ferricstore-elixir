@@ -98,4 +98,64 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntimeTest do
     assert final_state.data_in_flight == 0
     assert final_state.decode == nil
   end
+
+  test "acknowledged delivery keeps a draining response pending until its consumer handles it" do
+    tag = make_ref()
+    target = {:acknowledged_message, self(), tag}
+    request_id = 43
+
+    pending = %{
+      target: target,
+      opcode: Opcodes.get(),
+      lane_id: 7,
+      flow_controlled?: true,
+      timer: nil,
+      response_context: nil,
+      deadline: System.monotonic_time(:millisecond) + 5_000,
+      phase: :sent,
+      chunk_bytes: 0,
+      chunk_frames: 0,
+      chunks: []
+    }
+
+    state = %{
+      pending: %{request_id => pending},
+      pending_targets: %{target => request_id},
+      pending_lanes: %{7 => 1},
+      data_in_flight: 1,
+      response_chunk_bytes: 0,
+      response_chunk_frames: 0,
+      max_response_bytes: 1_024,
+      max_in_flight: 8,
+      max_in_flight_per_lane: 8,
+      drain: %{active: true, timer: nil, token: nil}
+    }
+
+    body = <<0::unsigned-16, Codec.encode_value("committed")::binary>>
+
+    assert {:ok, decoding_state} =
+             ConnectionResponseRuntime.finish(state, request_id, pending, 0, body)
+
+    assert_receive decode_message
+
+    assert {:noreply, awaiting_state} =
+             ConnectionInfoRuntime.handle(decode_message, decoding_state)
+
+    assert %{phase: :awaiting_delivery, delivery_token: delivery_token} =
+             awaiting_state.pending[request_id]
+
+    assert awaiting_state.data_in_flight == 1
+
+    assert_receive {:ferricstore_connection_response, _connection, ^tag, {:ok, "committed"},
+                    ^delivery_token}
+
+    acknowledgement =
+      {:ferricstore_response_delivered, self(), tag, delivery_token}
+
+    assert {:noreply, final_state} =
+             ConnectionInfoRuntime.handle(acknowledgement, awaiting_state)
+
+    assert final_state.pending == %{}
+    assert final_state.data_in_flight == 0
+  end
 end

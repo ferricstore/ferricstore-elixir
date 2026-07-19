@@ -4,6 +4,7 @@ defmodule FerricStore.SDK.Native.Connection do
   use GenServer
 
   alias FerricStore.SDK.Native.{
+    ConnectionAsyncClient,
     ConnectionClient,
     ConnectionDrain,
     ConnectionInfoRuntime,
@@ -82,12 +83,27 @@ defmodule FerricStore.SDK.Native.Connection do
   def capacity(pid, timeout \\ @default_timeout), do: ConnectionClient.capacity(pid, timeout)
 
   def async_request(pid, reply_to, tag, opcode, payload, lane_id, timeout \\ @default_timeout),
-    do: ConnectionClient.async_request(pid, reply_to, tag, opcode, payload, lane_id, timeout)
+    do: ConnectionAsyncClient.request(pid, reply_to, tag, opcode, payload, lane_id, timeout)
+
+  def acknowledged_async_request(pid, reply_to, tag, opcode, payload, lane_id, timeout),
+    do:
+      ConnectionAsyncClient.acknowledged_request(
+        pid,
+        reply_to,
+        tag,
+        opcode,
+        payload,
+        lane_id,
+        timeout
+      )
+
+  def acknowledge_response(pid, reply_to, tag, delivery_token),
+    do: ConnectionAsyncClient.acknowledge(pid, reply_to, tag, delivery_token)
 
   def cancel(pid, reply_to, tag, timeout \\ @default_timeout),
     do: ConnectionClient.cancel(pid, reply_to, tag, timeout)
 
-  def cancel_async(pid, reply_to, tag), do: ConnectionClient.cancel_async(pid, reply_to, tag)
+  def cancel_async(pid, reply_to, tag), do: ConnectionAsyncClient.cancel(pid, reply_to, tag)
   def drain(pid), do: ConnectionClient.drain(pid)
   def abort(pid, reason), do: ConnectionClient.abort(pid, reason)
 
@@ -129,16 +145,16 @@ defmodule FerricStore.SDK.Native.Connection do
   end
 
   def handle_call({:cancel, reply_to, tag}, _from, state) do
-    state = ConnectionPending.cancel_target(state, {:message, reply_to, tag})
+    state = cancel_async_target(state, reply_to, tag)
     {:reply, :ok, ConnectionDrain.maybe_stop(state)}
   end
 
   @impl true
   def handle_cast(
-        {:async_request, reply_to, tag, opcode, payload, lane_id, timeout, deadline},
+        {:async_request, delivery, reply_to, tag, opcode, payload, lane_id, timeout, deadline},
         state
       ) do
-    target = {:message, reply_to, tag}
+    target = {delivery, reply_to, tag}
 
     case ConnectionRequest.submit(state, target, opcode, payload, lane_id, timeout, deadline) do
       {:ok, next_state} ->
@@ -151,8 +167,13 @@ defmodule FerricStore.SDK.Native.Connection do
   end
 
   def handle_cast({:cancel, reply_to, tag}, state) do
-    state = ConnectionPending.cancel_target(state, {:message, reply_to, tag})
+    state = cancel_async_target(state, reply_to, tag)
     {:noreply, ConnectionDrain.maybe_stop(state)}
+  end
+
+  def handle_cast({:acknowledge_response, reply_to, tag, delivery_token}, state) do
+    message = {:ferricstore_response_delivered, reply_to, tag, delivery_token}
+    ConnectionInfoRuntime.handle(message, state)
   end
 
   def handle_cast(:drain, state), do: {:noreply, ConnectionDrain.begin(state)}
@@ -165,4 +186,10 @@ defmodule FerricStore.SDK.Native.Connection do
 
   @impl true
   def terminate(_reason, state), do: ConnectionShutdown.run(state)
+
+  defp cancel_async_target(state, reply_to, tag) do
+    state
+    |> ConnectionPending.cancel_target({:message, reply_to, tag})
+    |> ConnectionPending.cancel_target({:acknowledged_message, reply_to, tag})
+  end
 end

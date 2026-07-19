@@ -78,17 +78,31 @@ defmodule FerricStore.SDK.Native.ConnectionResponseDecoder do
   defp await_delivery(owner, owner_monitor, request_id, decode_token, target, result) do
     receive do
       {@delivery_tag, ^owner, ^request_id, ^decode_token} ->
-        reply(target, owner, result)
+        reply(target, owner, request_id, decode_token, result)
 
       {:DOWN, ^owner_monitor, :process, ^owner, _reason} ->
         :ok
     end
   end
 
-  defp reply({:call, from}, _owner, result), do: GenServer.reply(from, result)
+  defp reply({:call, from}, _owner, _request_id, _decode_token, result),
+    do: GenServer.reply(from, result)
 
-  defp reply({:message, reply_to, tag}, owner, result),
+  defp reply({:message, reply_to, tag}, owner, _request_id, _decode_token, result),
     do: send(reply_to, {:ferricstore_connection_response, owner, tag, result})
 
-  defp reply(:heartbeat, _owner, _result), do: :ok
+  defp reply(
+         {:acknowledged_message, reply_to, tag},
+         owner,
+         _request_id,
+         decode_token,
+         result
+       ) do
+    send(
+      reply_to,
+      {:ferricstore_connection_response, owner, tag, result, decode_token}
+    )
+  end
+
+  defp reply(:heartbeat, _owner, _request_id, _decode_token, _result), do: :ok
 end

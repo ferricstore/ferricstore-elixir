@@ -135,7 +135,7 @@ defmodule FerricStore.SDK.Native.CoordinatorRequestRuntime do
   defp send_request(state, tag, connection, request) do
     timeout = CoordinatorTimers.connection_timeout(request.opts, @default_timeout)
 
-    Connection.async_request(
+    Connection.acknowledged_async_request(
       connection,
       self(),
       tag,

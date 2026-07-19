@@ -46,8 +46,9 @@ defmodule FerricStore.SDK.Native.ConnectionFrameProcessor do
     end
   end
 
-  defp process_correlated_frame(state, request_id, %{phase: :decoding}, _flags, _body),
-    do: {:stop, {:duplicate_response, request_id}, state}
+  defp process_correlated_frame(state, request_id, %{phase: phase}, _flags, _body)
+       when phase in [:decoding, :awaiting_delivery],
+       do: {:stop, {:duplicate_response, request_id}, state}
 
   defp process_correlated_frame(
          state,

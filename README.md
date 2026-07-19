@@ -2,7 +2,7 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public beta `0.4.0`. This release requires FerricStore `~> 0.9.1`.
+Status: public beta `0.4.1`. This release requires FerricStore `~> 0.9.1`.
 FerricStore 0.9 is a breaking beta API contract; native wire framing remains
 protocol v1. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
@@ -30,7 +30,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.4.0"}
+    {:ferricstore_sdk, "~> 0.4.1"}
   ]
 end
 ```

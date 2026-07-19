@@ -108,7 +108,7 @@ defmodule FerricStore.SDK.Native.BatchWireExecution do
     tag = make_ref()
     timeout = CoordinatorTimers.connection_timeout(batch.opts, @default_timeout)
 
-    Connection.async_request(
+    Connection.acknowledged_async_request(
       conn,
       self(),
       tag,

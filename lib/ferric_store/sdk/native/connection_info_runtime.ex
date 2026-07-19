@@ -8,6 +8,7 @@ defmodule FerricStore.SDK.Native.ConnectionInfoRuntime do
     ConnectionDrain,
     ConnectionEncoder,
     ConnectionRequest,
+    ConnectionResponseDelivery,
     ConnectionResponseRuntime,
     ConnectionServerFrameRuntime,
     ConnectionSocketRuntime,
@@ -128,6 +129,13 @@ defmodule FerricStore.SDK.Native.ConnectionInfoRuntime do
 
   def handle({:late_response_timeout, request_id, token}, state),
     do: ConnectionDiscardedResponse.expire(state, request_id, token)
+
+  def handle({:ferricstore_response_delivered, reply_to, tag, delivery_token}, state) do
+    next_state =
+      ConnectionResponseDelivery.acknowledge(state, reply_to, tag, delivery_token)
+
+    {:noreply, next_state}
+  end
 
   def handle({:server_chunk_timeout, key, token}, state) do
     if ServerFrameAssembler.timeout?(state.server_frame_assembler, key, token) do

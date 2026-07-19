@@ -6,6 +6,7 @@ defmodule FerricStore.SDK.Native.CoordinatorInfoRuntime do
     ConnectionPool,
     CoordinatorBatchPreparationRuntime,
     CoordinatorConnectionCleanup,
+    CoordinatorConnectionResponseRuntime,
     CoordinatorConnectionRuntime,
     CoordinatorEventRuntime,
     CoordinatorLifecycleRuntime,
@@ -19,14 +20,11 @@ defmodule FerricStore.SDK.Native.CoordinatorInfoRuntime do
     TopologyRefreshCompletions
   }
 
-  @spec handle(term(), map()) :: {:noreply, map()}
-  def handle({:ferricstore_connection_response, conn, tag, result}, state) do
-    endpoint_key = ConnectionPool.endpoint_key(state.connection_pool, conn)
+  def handle({:ferricstore_connection_response, _, _, _, _} = response, state),
+    do: CoordinatorConnectionResponseRuntime.handle(state, response)
 
-    state
-    |> CoordinatorRuntime.handle_connection_response(conn, tag, result)
-    |> CoordinatorRuntime.resume_batch_capacity(endpoint_key)
-  end
+  def handle({:ferricstore_connection_response, _, _, _} = response, state),
+    do: CoordinatorConnectionResponseRuntime.handle(state, response)
 
   def handle({:batch_prepared, preparer, token, batch_id, result}, state) do
     CoordinatorBatchPreparationRuntime.complete(

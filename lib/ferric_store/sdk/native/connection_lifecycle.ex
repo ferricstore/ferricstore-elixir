@@ -40,10 +40,19 @@ defmodule FerricStore.SDK.Native.ConnectionLifecycle do
     pool
   end
 
+  @spec drain(pid()) :: :ok
+  def drain(connection) when is_pid(connection) do
+    if Process.alive?(connection), do: Connection.drain(connection), else: :ok
+  end
+
   @spec retire(ConnectionPool.t(), pid()) :: ConnectionPool.t()
   def retire(pool, connection) when is_pid(connection) do
-    drain(connection)
-    ConnectionPool.retire_connection(pool, connection)
+    if Process.alive?(connection) do
+      drain(connection)
+      ConnectionPool.retire_connection(pool, connection)
+    else
+      ConnectionPool.remove_connection(pool, connection)
+    end
   end
 
   @spec remove(ConnectionPool.t(), pid()) :: ConnectionPool.t()
@@ -72,9 +81,5 @@ defmodule FerricStore.SDK.Native.ConnectionLifecycle do
   defp monitor_connection(registry, connection) do
     monitor = Process.monitor(connection)
     LifecycleRegistry.put(registry, monitor, {:connection, connection})
-  end
-
-  defp drain(connection) do
-    if Process.alive?(connection), do: Connection.drain(connection), else: :ok
   end
 end

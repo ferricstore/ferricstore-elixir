@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Preserve acknowledged mutation results while topology changes gracefully
+  drain or replace their native connections.
+- Keep replacement sessions within configured capacity while pending requests
+  finish, and retire overlapping sessions without terminating in-flight work.
+
 ## 0.4.0
 
 - Require FerricStore 0.9.1 while retaining native wire protocol v1.

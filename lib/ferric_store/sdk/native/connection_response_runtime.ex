@@ -7,6 +7,7 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
     ConnectionPending,
     ConnectionRequest,
     ConnectionResponseDecoder,
+    ConnectionResponseDelivery,
     ConnectionTimers,
     FlowControl
   }
@@ -123,11 +124,7 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
     previous = capacity_profile(state)
     state = FlowControl.apply_window_limits(state, window_limits)
     notify_capacity_change(state, previous)
-    :ok = ConnectionResponseDecoder.deliver(worker, request_id, decode_token)
-    delivering = %{pending | phase: :delivering}
-    state = ConnectionPending.drop(state, request_id, delivering)
-    ConnectionTimers.cancel(pending.timer)
-    {:ok, ConnectionDrain.maybe_stop(state)}
+    {:ok, ConnectionResponseDelivery.begin(state, request_id, pending, worker, decode_token)}
   end
 
   defp accept_decode(state, _request_id, _pending, _worker, _decode_token, _metadata) do

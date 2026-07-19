@@ -47,7 +47,7 @@ defmodule FerricStore.SDK.Native.CoordinatorTopologyRefreshRuntime do
       {:ok, published_state} ->
         state =
           published_state
-          |> stop_and_forget_replaced_connection(replaced_connection)
+          |> retire_replaced_connection(replaced_connection)
           |> CoordinatorConnectionRuntime.track(key, conn, capacity)
           |> TopologyRuntime.prune()
           |> callbacks.maybe_start_event_restore.(conn)
@@ -158,10 +158,9 @@ defmodule FerricStore.SDK.Native.CoordinatorTopologyRefreshRuntime do
     end
   end
 
-  defp stop_and_forget_replaced_connection(state, conn) when is_pid(conn) do
-    ConnectionLifecycle.stop(state.connection_supervisor, conn)
-    %{state | connection_pool: ConnectionLifecycle.remove(state.connection_pool, conn)}
+  defp retire_replaced_connection(state, conn) when is_pid(conn) do
+    %{state | connection_pool: ConnectionLifecycle.retire(state.connection_pool, conn)}
   end
 
-  defp stop_and_forget_replaced_connection(state, _connection), do: state
+  defp retire_replaced_connection(state, _connection), do: state
 end
