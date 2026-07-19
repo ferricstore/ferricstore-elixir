@@ -9,7 +9,9 @@ defmodule FerricStore.SDK.Native.TopologyRefresher do
     ConnectionLifecycle,
     EndpointValidator,
     Topology,
-    TopologyRefreshConnection
+    TopologyRefreshCandidates,
+    TopologyRefreshConnection,
+    TopologyReplacementDrain
   }
 
   @default_timeout 5_000
@@ -51,39 +53,10 @@ defmodule FerricStore.SDK.Native.TopologyRefresher do
 
   @impl true
   def handle_continue(:refresh, state) do
-    result =
-      refresh_candidates(
-        state.candidates,
-        state,
-        {:error, :no_endpoint_reachable},
-        length(state.candidates)
-      )
+    result = TopologyRefreshCandidates.run(state.candidates, state, &refresh_candidate/2)
 
     send(state.owner, {:ferricstore_topology_refreshed, self(), state.token, result})
     {:stop, :normal, state}
-  end
-
-  defp refresh_candidates([], state, last_result, 0) do
-    if remaining_timeout(state) == 0, do: {:error, :timeout}, else: last_result
-  end
-
-  defp refresh_candidates([endpoint | rest], state, _last_result, candidate_count) do
-    if remaining_timeout(state) == 0 do
-      {:error, :timeout}
-    else
-      candidate_state = %{
-        state
-        | deadline: DeadlineBudget.slice(state.deadline, candidate_count)
-      }
-
-      case refresh_candidate(endpoint, candidate_state) do
-        {:ok, _topology, _conn, _key, _capacity, _replaced_connection} = ok ->
-          ok
-
-        {:error, _reason} = error ->
-          refresh_candidates(rest, state, error, candidate_count - 1)
-      end
-    end
   end
 
   defp refresh_candidate(endpoint, state) do
@@ -139,10 +112,7 @@ defmodule FerricStore.SDK.Native.TopologyRefresher do
          %{connection_strategy: :replacement} = state,
          _reason
        ) do
-    monitor = Process.monitor(conn)
-    ConnectionLifecycle.drain(conn)
-
-    case await_drained_connection(conn, monitor, state) do
+    case TopologyReplacementDrain.await(conn, state) do
       :ok -> connect_and_load(endpoint, key, state, conn)
       {:error, _reason} = error -> error
     end
@@ -180,17 +150,5 @@ defmodule FerricStore.SDK.Native.TopologyRefresher do
       {:error, reason}
   end
 
-  defp remaining_timeout(state), do: DeadlineBudget.remaining(state.deadline)
-
   defp request_timeout(state), do: DeadlineBudget.request_timeout(state.deadline)
-
-  defp await_drained_connection(conn, monitor, state) do
-    receive do
-      {:DOWN, ^monitor, :process, ^conn, _reason} -> :ok
-    after
-      remaining_timeout(state) ->
-        Process.demonitor(monitor, [:flush])
-        {:error, :timeout}
-    end
-  end
 end

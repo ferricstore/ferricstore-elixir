@@ -40,6 +40,10 @@ mix hex.build
 scripts/test_integration.sh
 ```
 
+CI and release validation additionally run the acknowledged response benchmark
+from `docs/benchmark.md` against that same pinned server. Its throughput floor
+turns response-delivery performance into a required gate.
+
 The coverage gate starts at 70% and is a ratchet: new code must not lower it.
 Only generated `Inspect` protocol implementations are excluded from the report.
 Raise the threshold as focused tests increase coverage.

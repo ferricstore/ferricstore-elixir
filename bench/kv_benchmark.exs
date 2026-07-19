@@ -8,10 +8,19 @@ defmodule FerricStore.KVBenchmark do
     requests = Keyword.fetch!(opts, :requests)
     batch = Keyword.fetch!(opts, :batch)
     clients = Keyword.fetch!(opts, :clients)
+    min_throughput = Keyword.fetch!(opts, :min_throughput)
     value = :binary.copy("x", Keyword.fetch!(opts, :value_bytes))
     run_id = System.system_time(:nanosecond)
 
-    client_pids = for _ <- 1..clients, do: FerricStore.connect!(url: url, client_name: "ferricstore-elixir-kv-benchmark", timeout: 30_000)
+    client_pids =
+      for _ <- 1..clients do
+        FerricStore.connect!(
+          url: url,
+          client_name: "ferricstore-elixir-kv-benchmark",
+          connect_timeout: 30_000,
+          topology_refresh_timeout: 30_000
+        )
+      end
 
     if command == "get" do
       preload(client_pids, run_id, requests, batch, value)
@@ -32,6 +41,7 @@ defmodule FerricStore.KVBenchmark do
     Enum.each(client_pids, &FerricStore.close/1)
 
     throughput = requests * 1000 / elapsed_ms
+    enforce_minimum_throughput!(throughput, min_throughput)
 
     IO.puts(
       "command=#{command} requests=#{requests} clients=#{clients} batch=#{batch} elapsed_ms=#{elapsed_ms} throughput=#{Float.round(throughput, 2)}/s #{latency_summary(latencies)}"
@@ -105,10 +115,26 @@ defmodule FerricStore.KVBenchmark do
     Enum.at(sorted, min(max(index, 0), count - 1))
   end
 
+  defp enforce_minimum_throughput!(_throughput, nil), do: :ok
+
+  defp enforce_minimum_throughput!(throughput, minimum) when throughput >= minimum, do: :ok
+
+  defp enforce_minimum_throughput!(throughput, minimum) do
+    raise "throughput regression: throughput=#{throughput}/s minimum=#{minimum}/s"
+  end
+
   defp parse_args(args) do
     {opts, _rest, _invalid} =
       OptionParser.parse(args,
-        strict: [url: :string, command: :string, requests: :integer, batch: :integer, clients: :integer, value_bytes: :integer]
+        strict: [
+          url: :string,
+          command: :string,
+          requests: :integer,
+          batch: :integer,
+          clients: :integer,
+          value_bytes: :integer,
+          min_throughput: :float
+        ]
       )
 
     opts
@@ -118,6 +144,7 @@ defmodule FerricStore.KVBenchmark do
     |> Keyword.put_new(:batch, 100)
     |> Keyword.put_new(:clients, 8)
     |> Keyword.put_new(:value_bytes, 32)
+    |> Keyword.put_new(:min_throughput, nil)
   end
 end
 

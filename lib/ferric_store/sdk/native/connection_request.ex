@@ -9,7 +9,11 @@ defmodule FerricStore.SDK.Native.ConnectionRequest do
     ConnectionTimers
   }
 
-  @type target :: {:call, GenServer.from()} | {:message, pid(), reference()} | :heartbeat
+  @type target ::
+          {:call, GenServer.from()}
+          | {:message, pid(), reference()}
+          | {:acknowledged_message, pid(), reference()}
+          | :heartbeat
 
   @spec submit(map(), target(), non_neg_integer(), term(), non_neg_integer(), timeout()) ::
           {:ok, map()} | {:error, term(), map()}

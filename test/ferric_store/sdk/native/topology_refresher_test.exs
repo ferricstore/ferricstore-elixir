@@ -1,5 +1,5 @@
 defmodule FerricStore.SDK.Native.TopologyRefresherTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias FerricStore.SDK.Native.{Topology, TopologyRefresher}
   alias FerricStore.Test.NativeServer

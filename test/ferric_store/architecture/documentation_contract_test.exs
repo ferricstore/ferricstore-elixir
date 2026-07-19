@@ -13,7 +13,7 @@ defmodule FerricStore.Architecture.DocumentationContractTest do
   end
 
   test "the release declares the FerricStore 0.9 beta contract without changing wire v1" do
-    assert Mix.Project.config()[:version] == "0.4.1"
+    assert Mix.Project.config()[:version] == "0.4.2"
     assert FerricStore.minimum_server_version() == "0.9.1"
     assert FerricStore.SDK.minimum_server_version() == "0.9.1"
     assert FerricStore.server_version_requirement() == "~> 0.9.1"

@@ -246,4 +246,30 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     refute benchmark =~ "atomicity: :per_slot"
     refute benchmark =~ "atomicity: :per_shard"
   end
+
+  test "CI exercises acknowledged connection responses through the KV benchmark" do
+    benchmark = File.read!(Path.expand("../../../bench/kv_benchmark.exs", __DIR__))
+    benchmark_docs = File.read!(Path.expand("../../../docs/benchmark.md", __DIR__))
+    testing_docs = File.read!(Path.expand("../../../docs/testing.md", __DIR__))
+
+    assert benchmark =~ "connect_timeout: 30_000"
+    assert benchmark =~ "topology_refresh_timeout: 30_000"
+    assert benchmark =~ "min_throughput"
+    refute Regex.match?(~r/connect!\([^\n]*\btimeout:/, benchmark)
+
+    for workflow <- [
+          "../../../.github/workflows/ci.yml",
+          "../../../.github/workflows/release.yml"
+        ] do
+      workflow = workflow |> Path.expand(__DIR__) |> File.read!()
+
+      assert workflow =~ "mix run bench/kv_benchmark.exs"
+      assert workflow =~ "--batch 1"
+      assert workflow =~ "--min-throughput 100.0"
+    end
+
+    assert benchmark_docs =~ "--batch 1"
+    assert benchmark_docs =~ "--min-throughput 100.0"
+    assert testing_docs =~ "acknowledged response benchmark"
+  end
 end

@@ -2,7 +2,13 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntimeTest do
   use ExUnit.Case, async: false
 
   alias FerricStore.Protocol.Opcodes
-  alias FerricStore.SDK.Native.{Codec, ConnectionInfoRuntime, ConnectionResponseRuntime}
+
+  alias FerricStore.SDK.Native.{
+    Codec,
+    ConnectionInfoRuntime,
+    ConnectionRequest,
+    ConnectionResponseRuntime
+  }
 
   test "a response decoded after its absolute deadline cannot become a late success" do
     tag = make_ref()
@@ -157,5 +163,97 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntimeTest do
 
     assert final_state.pending == %{}
     assert final_state.data_in_flight == 0
+  end
+
+  test "fatal connection failure preserves decoded responses awaiting consumer acknowledgement" do
+    delivered_tag = make_ref()
+    unresolved_tag = make_ref()
+    delivered_target = {:acknowledged_message, self(), delivered_tag}
+    unresolved_target = {:acknowledged_message, self(), unresolved_tag}
+
+    delivered =
+      pending(delivered_target,
+        phase: :awaiting_delivery,
+        delivery_token: make_ref(),
+        timeout_token: make_ref()
+      )
+
+    unresolved =
+      pending(unresolved_target,
+        phase: :sent,
+        timeout_token: make_ref()
+      )
+
+    state = response_state(%{51 => delivered, 52 => unresolved})
+    failure = {:transport_failed, :closed}
+    next_state = ConnectionRequest.fail_pending(state, failure)
+
+    refute_receive {:ferricstore_connection_response, _connection, ^delivered_tag,
+                    {:error, ^failure}}
+
+    assert_receive {:ferricstore_connection_response, _connection, ^unresolved_tag,
+                    {:error, ^failure}}
+
+    assert next_state.pending == %{51 => delivered}
+    assert next_state.pending_targets == %{delivered_target => 51}
+    assert next_state.pending_lanes == %{7 => 1}
+    assert next_state.data_in_flight == 1
+  end
+
+  test "a queued request timeout cannot invalidate a decoded response awaiting acknowledgement" do
+    tag = make_ref()
+    timeout_token = make_ref()
+    target = {:acknowledged_message, self(), tag}
+
+    delivered =
+      pending(target,
+        phase: :awaiting_delivery,
+        delivery_token: make_ref(),
+        timeout_token: timeout_token
+      )
+
+    state = response_state(%{53 => delivered})
+
+    assert {:noreply, ^state} =
+             ConnectionInfoRuntime.handle({:request_timeout, 53, timeout_token}, state)
+
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, _result}
+  end
+
+  defp pending(target, overrides) do
+    Map.merge(
+      %{
+        target: target,
+        opcode: Opcodes.get(),
+        lane_id: 7,
+        flow_controlled?: true,
+        timer: nil,
+        response_context: nil,
+        deadline: System.monotonic_time(:millisecond) + 5_000,
+        chunk_bytes: 0,
+        chunk_frames: 0,
+        chunks: []
+      },
+      Map.new(overrides)
+    )
+  end
+
+  defp response_state(pending) do
+    pending_targets =
+      Map.new(pending, fn {request_id, request} -> {request.target, request_id} end)
+
+    %{
+      pending: pending,
+      pending_targets: pending_targets,
+      pending_lanes: %{7 => map_size(pending)},
+      data_in_flight: map_size(pending),
+      response_chunk_bytes: 0,
+      response_chunk_frames: 0,
+      decode: nil,
+      max_response_bytes: 1_024,
+      max_in_flight: 8,
+      max_in_flight_per_lane: 8,
+      drain: %{active: false}
+    }
   end
 end

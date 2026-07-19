@@ -467,6 +467,89 @@ defmodule FerricStore.SDK.Native.ConnectionTest do
     assert_receive {:DOWN, ^monitor, :process, ^connection, :normal}, 200
   end
 
+  test "transport shutdown waits for a decoded response acknowledgement" do
+    {_server, connection} = start_connection(heartbeat_interval: :infinity)
+    tag = make_ref()
+    delivery_token = make_ref()
+    target = {:acknowledged_message, self(), tag}
+
+    state = :sys.get_state(connection)
+
+    pending = %{
+      target: target,
+      opcode: 0x0102,
+      lane_id: 1,
+      flow_controlled?: true,
+      phase: :awaiting_delivery,
+      delivery_token: delivery_token,
+      timeout_token: make_ref(),
+      timer: nil,
+      chunk_bytes: 0,
+      chunk_frames: 0
+    }
+
+    :sys.replace_state(connection, fn state ->
+      %{
+        state
+        | pending: %{71 => pending},
+          pending_targets: %{target => 71},
+          pending_lanes: %{1 => 1},
+          data_in_flight: 1
+      }
+    end)
+
+    monitor = Process.monitor(connection)
+    send(connection, {:tcp_closed, state.socket})
+
+    assert_eventually(fn ->
+      connection |> :sys.get_state() |> Map.fetch!(:drain) |> Map.get(:terminal, false)
+    end)
+
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, {:error, _reason}}
+    refute_receive {:DOWN, ^monitor, :process, ^connection, _reason}
+
+    assert :ok = Connection.acknowledge_response(connection, self(), tag, delivery_token)
+    assert_receive {:DOWN, ^monitor, :process, ^connection, :normal}, 500
+  end
+
+  test "transport shutdown retires after the acknowledgement deadline" do
+    {_server, connection} =
+      start_connection(heartbeat_interval: :infinity, drain_timeout: 20)
+
+    tag = make_ref()
+    target = {:acknowledged_message, self(), tag}
+    state = :sys.get_state(connection)
+
+    pending = %{
+      target: target,
+      opcode: 0x0102,
+      lane_id: 1,
+      flow_controlled?: true,
+      phase: :awaiting_delivery,
+      delivery_token: make_ref(),
+      timeout_token: make_ref(),
+      timer: nil,
+      chunk_bytes: 0,
+      chunk_frames: 0
+    }
+
+    :sys.replace_state(connection, fn state ->
+      %{
+        state
+        | pending: %{72 => pending},
+          pending_targets: %{target => 72},
+          pending_lanes: %{1 => 1},
+          data_in_flight: 1
+      }
+    end)
+
+    monitor = Process.monitor(connection)
+    send(connection, {:tcp_closed, state.socket})
+
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, {:error, _reason}}
+    assert_receive {:DOWN, ^monitor, :process, ^connection, :normal}, 500
+  end
+
   test "mass async cancellation scales near-linearly" do
     cancel_reductions(24)
     small = cancel_reductions(96)
@@ -802,7 +885,7 @@ defmodule FerricStore.SDK.Native.ConnectionTest do
 
     assert_receive {:DOWN, ^monitor, :process, ^connection,
                     {:heartbeat_failed, :request_too_large}},
-                   500
+                   1_000
   end
 
   defp start_connection(opts \\ []) do

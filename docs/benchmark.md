@@ -80,6 +80,24 @@ mix run bench/kv_benchmark.exs \
   --value-bytes 32
 ```
 
+CI and release validation also run an acknowledged-response SET shape with no
+pipeline batching. This catches delivery-acknowledgement regressions that the
+offline codec benchmark cannot observe:
+
+```bash
+mix run bench/kv_benchmark.exs \
+  --url ferric://127.0.0.1:6398 \
+  --command set \
+  --requests 1000 \
+  --clients 4 \
+  --batch 1 \
+  --value-bytes 32 \
+  --min-throughput 100.0
+```
+
+`--min-throughput` makes the command exit non-zero when measured requests per
+second fall below the supplied floor.
+
 Python comparison commands:
 
 ```bash

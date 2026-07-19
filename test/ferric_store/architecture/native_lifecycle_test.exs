@@ -43,7 +43,25 @@ defmodule FerricStore.Architecture.NativeLifecycleTest do
              end)
     end
 
-    assert source_line_count("../../lib/ferric_store/sdk/native/topology_refresher.ex") <= 200
+    assert source_line_count("../../lib/ferric_store/sdk/native/topology_refresher.ex") <= 180
+
+    assert Enum.any?(calls, fn call ->
+             call.caller_module == FerricStore.SDK.Native.TopologyRefresher and
+               call.callee_module == FerricStore.SDK.Native.TopologyRefreshCandidates and
+               call.callee_function == :run
+           end)
+
+    assert source_line_count("../../lib/ferric_store/sdk/native/topology_refresh_candidates.ex") <=
+             40
+
+    assert Enum.any?(calls, fn call ->
+             call.caller_module == FerricStore.SDK.Native.TopologyRefresher and
+               call.callee_module == FerricStore.SDK.Native.TopologyReplacementDrain and
+               call.callee_function == :await
+           end)
+
+    assert source_line_count("../../lib/ferric_store/sdk/native/topology_replacement_drain.ex") <=
+             35
 
     assert source_line_count("../../lib/ferric_store/sdk/native/topology_refresh_connection.ex") <=
              70
@@ -173,7 +191,28 @@ defmodule FerricStore.Architecture.NativeLifecycleTest do
            end)
 
     assert source_line_count("../../lib/ferric_store/sdk/native/coordinator_info_runtime.ex") <=
-             210
+             175
+
+    assert Enum.any?(calls, fn call ->
+             call.caller_module == FerricStore.SDK.Native.CoordinatorInfoRuntime and
+               call.callee_module ==
+                 FerricStore.SDK.Native.CoordinatorConnectionStartCompletion and
+               call.callee_function == :handle
+           end)
+
+    assert source_line_count(
+             "../../lib/ferric_store/sdk/native/coordinator_connection_start_completion.ex"
+           ) <= 50
+
+    assert Enum.any?(calls, fn call ->
+             call.caller_module == FerricStore.SDK.Native.CoordinatorInfoRuntime and
+               call.callee_module == FerricStore.SDK.Native.CoordinatorPendingRequestTimeout and
+               call.callee_function == :handle
+           end)
+
+    assert source_line_count(
+             "../../lib/ferric_store/sdk/native/coordinator_pending_request_timeout.ex"
+           ) <= 45
 
     assert Enum.any?(calls, fn call ->
              call.caller_module == FerricStore.SDK.Native.CoordinatorRequestOrchestration and

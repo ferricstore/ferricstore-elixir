@@ -1,7 +1,13 @@
 defmodule FerricStore.SDK.Native.ConnectionPendingLifecycle do
   @moduledoc false
 
-  alias FerricStore.SDK.Native.{ConnectionResponseDecoder, ConnectionTimers, FlowControl}
+  alias FerricStore.SDK.Native.{
+    ConnectionPendingFailure,
+    ConnectionReply,
+    ConnectionResponseDecoder,
+    ConnectionTimers,
+    FlowControl
+  }
 
   @spec drop(map(), non_neg_integer(), map()) :: map()
   def drop(state, request_id, pending) do
@@ -29,36 +35,36 @@ defmodule FerricStore.SDK.Native.ConnectionPendingLifecycle do
 
   @spec fail_all(map(), term()) :: map()
   def fail_all(state, reason) do
+    state |> ConnectionPendingFailure.run(reason) |> clear_response_decode()
+  end
+
+  @spec discard_all(map()) :: map()
+  def discard_all(state) do
     Enum.each(state.pending, fn {_request_id, pending} ->
       ConnectionTimers.cancel(pending.timer)
       ConnectionResponseDecoder.stop(pending)
-      reply(pending.target, {:error, reason})
     end)
 
-    state = %{
-      state
-      | pending: %{},
-        pending_targets: %{},
-        pending_lanes: %{},
-        data_in_flight: 0,
-        response_chunk_bytes: 0,
-        response_chunk_frames: 0
-    }
-
-    clear_response_decode(state)
+    state
+    |> Map.merge(%{
+      pending: %{},
+      pending_targets: %{},
+      pending_lanes: %{},
+      data_in_flight: 0,
+      response_chunk_bytes: 0,
+      response_chunk_frames: 0
+    })
+    |> clear_response_decode()
   end
 
+  @spec awaiting_delivery?(map()) :: boolean()
+  def awaiting_delivery?(state),
+    do: Enum.any?(state.pending, fn {_request_id, pending} -> delivery_pending?(pending) end)
+
   @spec reply(term(), term()) :: :ok | term()
-  def reply({:call, from}, result), do: GenServer.reply(from, result)
+  defdelegate reply(target, result), to: ConnectionReply, as: :send
 
-  def reply({:message, reply_to, tag}, result),
-    do: send(reply_to, {:ferricstore_connection_response, self(), tag, result})
-
-  def reply({:acknowledged_message, reply_to, tag}, result),
-    do: send(reply_to, {:ferricstore_connection_response, self(), tag, result})
-
-  def reply(:heartbeat, _result), do: :ok
-  def reply(:discard, _result), do: :ok
+  defp delivery_pending?(pending), do: pending[:phase] == :awaiting_delivery
 
   defp delete_target_index(pending_targets, target, request_id) do
     case Map.fetch(pending_targets, target) do

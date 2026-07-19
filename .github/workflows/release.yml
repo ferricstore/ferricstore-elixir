@@ -60,6 +60,12 @@ jobs:
           done
           exit 1
       - run: mix test --only integration
+      - name: End-to-end acknowledged response benchmark
+        run: >-
+          mix run bench/kv_benchmark.exs
+          --url ferric://127.0.0.1:6388 --command set
+          --requests 1000 --batch 1 --clients 4
+          --value-bytes 32 --min-throughput 100.0
       - name: Stop FerricStore
         if: always()
         run: docker stop ferricstore-sdk-contract || true

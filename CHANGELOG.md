@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2
+
+- Preserve already-decoded acknowledged results across fatal connection
+  shutdown while failing unresolved work exactly once.
+- Bound terminal acknowledgement draining and ignore stale request timeouts
+  after response delivery has begun.
+- Split connection, coordinator, and topology lifecycle work into focused,
+  size-enforced runtime modules and stabilize asynchronous replacement tests.
+- Repair the end-to-end KV benchmark and enforce acknowledged-response
+  throughput floors in CI and release validation.
+
 ## 0.4.1
 
 - Preserve acknowledged mutation results while topology changes gracefully

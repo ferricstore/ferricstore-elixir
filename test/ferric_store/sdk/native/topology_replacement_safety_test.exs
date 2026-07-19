@@ -88,8 +88,8 @@ defmodule FerricStore.SDK.Native.TopologyReplacementSafetyTest do
 
     replacement = only_connection(client)
     refute replacement == original
-    refute Process.alive?(original)
     assert Process.alive?(replacement)
+    assert_eventually(fn -> not Process.alive?(original) end)
     assert_eventually(fn -> NativeServer.connection_count(server) == 1 end)
   end
 

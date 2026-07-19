@@ -2,14 +2,14 @@ defmodule FerricStore.SDK.Native.CoordinatorInfoRuntime do
   @moduledoc false
 
   alias FerricStore.SDK.Native.{
-    Connection,
-    ConnectionPool,
     CoordinatorBatchPreparationRuntime,
     CoordinatorConnectionCleanup,
     CoordinatorConnectionResponseRuntime,
     CoordinatorConnectionRuntime,
+    CoordinatorConnectionStartCompletion,
     CoordinatorEventRuntime,
     CoordinatorLifecycleRuntime,
+    CoordinatorPendingRequestTimeout,
     CoordinatorRetryInfo,
     CoordinatorRuntime,
     CoordinatorServerEventRuntime,
@@ -19,6 +19,8 @@ defmodule FerricStore.SDK.Native.CoordinatorInfoRuntime do
     TopologyRefreshCall,
     TopologyRefreshCompletions
   }
+
+  @spec handle(term(), map()) :: {:noreply, map()} | {:stop, term(), map()}
 
   def handle({:ferricstore_connection_response, _, _, _, _} = response, state),
     do: CoordinatorConnectionResponseRuntime.handle(state, response)
@@ -51,32 +53,8 @@ defmodule FerricStore.SDK.Native.CoordinatorInfoRuntime do
       when kind in [:retry_request, :retry_batch] and is_reference(id),
       do: CoordinatorRetryInfo.handle(kind, id, state)
 
-  def handle({:pending_request_timeout, tag}, state) do
-    endpoint_key = CoordinatorConnectionRuntime.pending_endpoint_key(state, tag)
-
-    result =
-      case CoordinatorRuntime.pop_pending_request(state, tag) do
-        {nil, state} ->
-          {:noreply, state}
-
-        {request, state} ->
-          if is_pid(Map.get(request, :conn)) do
-            Connection.cancel_async(request.conn, self(), tag)
-          end
-
-          state =
-            state
-            |> CoordinatorRuntime.remove_connection_waiter(
-              Map.get(request, :connection_key),
-              tag
-            )
-            |> CoordinatorRuntime.cancel_refresh_waiter({:request_retry, tag})
-
-          CoordinatorRuntime.handle_pending_timeout(state, request)
-      end
-
-    CoordinatorRuntime.resume_batch_capacity(result, endpoint_key)
-  end
+  def handle({:pending_request_timeout, tag}, state),
+    do: CoordinatorPendingRequestTimeout.handle(state, tag)
 
   def handle({:event_queue_timeout, event_call_id}, state),
     do: CoordinatorEventRuntime.timeout_queued(state, event_call_id)
@@ -112,27 +90,8 @@ defmodule FerricStore.SDK.Native.CoordinatorInfoRuntime do
     {:noreply, state}
   end
 
-  def handle({:ferricstore_connection_started, starter, token, key, result}, state) do
-    case ConnectionPool.pop_attempt(state.connection_pool, key) do
-      {%{starter: ^starter, token: ^token} = attempt, pool} ->
-        Process.demonitor(attempt.monitor, [:flush])
-
-        state =
-          state
-          |> Map.put(:connection_pool, pool)
-          |> CoordinatorRuntime.delete_lifecycle_monitor(
-            attempt.monitor,
-            {:connection_attempt, attempt.key}
-          )
-
-        CoordinatorRuntime.handle_connection_started(state, attempt, result)
-
-      {attempt, pool} ->
-        pool = if attempt, do: ConnectionPool.put_attempt(pool, key, attempt), else: pool
-        state = %{state | connection_pool: pool}
-        CoordinatorConnectionCleanup.discard_start(state, result)
-    end
-  end
+  def handle({:ferricstore_connection_started, starter, token, key, result}, state),
+    do: CoordinatorConnectionStartCompletion.handle(state, starter, token, key, result)
 
   def handle({:ferricstore_topology_refreshed, refresher, token, result}, state) do
     case CoordinatorTopologyRefreshRuntime.operation(state) do

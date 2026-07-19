@@ -40,7 +40,7 @@ defmodule FerricStore.Architecture.RuntimeFacadesTest do
         :validate
       },
       {
-        FerricStore.SDK.Native.Connection,
+        FerricStore.SDK.Native.ConnectionCallRuntime,
         FerricStore.SDK.Native.ConnectionRequest,
         :submit
       },
@@ -557,11 +557,11 @@ defmodule FerricStore.Architecture.RuntimeFacadesTest do
 
     assert source_line_count("../../lib/ferric_store/flow/options/mutation_schema.ex") <= 180
     assert source_line_count("../../lib/ferric_store/flow/options/query_schema.ex") <= 120
-    assert source_line_count("../../lib/ferric_store/sdk/native/connection.ex") <= 230
+    assert source_line_count("../../lib/ferric_store/sdk/native/connection.ex") <= 145
     assert source_line_count("../../lib/ferric_store/sdk/native/connection_initializer.ex") <= 90
 
     assert source_line_count("../../lib/ferric_store/sdk/native/connection_info_runtime.ex") <=
-             170
+             160
 
     assert source_line_count("../../lib/ferric_store/sdk/native/connection_client.ex") <= 100
     assert source_line_count("../../lib/ferric_store/sdk/native/server_contract.ex") <= 200
@@ -571,6 +571,8 @@ defmodule FerricStore.Architecture.RuntimeFacadesTest do
              30
 
     assert source_line_count("../../lib/ferric_store/sdk/native/connection_shutdown.ex") <= 40
+
+    assert source_line_count("../../lib/ferric_store/sdk/native/connection_termination.ex") <= 80
 
     for {module, function} <- [
           {FerricStore.SDK.Native.ConnectionClient, :request},
@@ -808,5 +810,39 @@ defmodule FerricStore.Architecture.RuntimeFacadesTest do
         ] do
       assert source_line_count(relative_path) <= 160
     end
+  end
+
+  test "connection delivery and shutdown responsibilities have typed focused owners", %{
+    calls: calls
+  } do
+    for {caller, callee, function} <- [
+          {FerricStore.SDK.Native.Connection, FerricStore.SDK.Native.ConnectionCallRuntime,
+           :handle},
+          {FerricStore.SDK.Native.Connection, FerricStore.SDK.Native.ConnectionCastRuntime,
+           :handle},
+          {FerricStore.SDK.Native.ConnectionInfoRuntime,
+           FerricStore.SDK.Native.ConnectionTimeoutRuntime, :handle},
+          {FerricStore.SDK.Native.ConnectionInfoRuntime,
+           FerricStore.SDK.Native.ConnectionDrainTimeoutRuntime, :handle},
+          {FerricStore.SDK.Native.ConnectionPendingLifecycle,
+           FerricStore.SDK.Native.ConnectionPendingFailure, :run}
+        ] do
+      assert Enum.any?(calls, fn call ->
+               call.caller_module == caller and call.callee_module == callee and
+                 call.callee_function == function
+             end),
+             "#{inspect(caller)} must delegate #{function}/N to #{inspect(callee)}"
+    end
+
+    request = source("../../lib/ferric_store/sdk/native/connection_request.ex")
+    coordinator_info = source("../../lib/ferric_store/sdk/native/coordinator_info_runtime.ex")
+
+    assert request =~ "{:acknowledged_message, pid(), reference()}"
+    assert coordinator_info =~ "@spec handle(term(), map()) :: {:noreply, map()}"
+
+    assert source_line_count(
+             "../../lib/ferric_store/sdk/native/connection_drain_timeout_runtime.ex"
+           ) <=
+             35
   end
 end

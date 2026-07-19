@@ -5,7 +5,7 @@
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.4.1"}
+    {:ferricstore_sdk, "~> 0.4.2"}
   ]
 end
 ```

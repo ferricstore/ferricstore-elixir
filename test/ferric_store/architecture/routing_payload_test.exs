@@ -129,13 +129,13 @@ defmodule FerricStore.Architecture.RoutingPayloadTest do
 
   test "coordinator cleanup never waits synchronously for a connection", %{calls: calls} do
     cleanup_modules = [
-      FerricStore.SDK.Native.CoordinatorInfoRuntime,
+      FerricStore.SDK.Native.CoordinatorPendingRequestTimeout,
       FerricStore.SDK.Native.BatchRequestCancellation,
       FerricStore.SDK.Native.CoordinatorEventCancellation
     ]
 
     assert_no_calls(calls,
-      from: cleanup_modules,
+      from: [FerricStore.SDK.Native.CoordinatorInfoRuntime | cleanup_modules],
       to: [FerricStore.SDK.Native.Connection],
       functions: [:cancel]
     )

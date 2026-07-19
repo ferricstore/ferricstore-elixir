@@ -6,12 +6,14 @@ defmodule FerricStore.SDK.Native.ConnectionInfoRuntime do
   alias FerricStore.SDK.Native.{
     ConnectionDiscardedResponse,
     ConnectionDrain,
+    ConnectionDrainTimeoutRuntime,
     ConnectionEncoder,
     ConnectionRequest,
     ConnectionResponseDelivery,
     ConnectionResponseRuntime,
     ConnectionServerFrameRuntime,
     ConnectionSocketRuntime,
+    ConnectionTimeoutRuntime,
     ConnectionTimers
   }
 
@@ -25,20 +27,8 @@ defmodule FerricStore.SDK.Native.ConnectionInfoRuntime do
   def handle({:ssl, socket, data}, %{transport: :ssl, socket: socket} = state),
     do: ConnectionSocketRuntime.data(data, state)
 
-  def handle({:request_timeout, request_id, token}, state) do
-    case Map.fetch(state.pending, request_id) do
-      {:ok, %{timeout_token: ^token, target: :heartbeat}} ->
-        {:stop, :heartbeat_timeout,
-         ConnectionRequest.fail_pending(state, {:transport_failed, :heartbeat_timeout})}
-
-      {:ok, %{timeout_token: ^token} = pending} ->
-        state = ConnectionDiscardedResponse.timeout(state, request_id, pending)
-        {:noreply, ConnectionDrain.maybe_stop(state)}
-
-      _other ->
-        {:noreply, state}
-    end
-  end
+  def handle({:request_timeout, request_id, token}, state),
+    do: ConnectionTimeoutRuntime.handle(request_id, token, state)
 
   def handle(
         {:ferricstore_response_decoded, worker, request_id, decode_token, result},
@@ -120,12 +110,8 @@ defmodule FerricStore.SDK.Native.ConnectionInfoRuntime do
 
   def handle({:heartbeat, _token}, state), do: {:noreply, state}
 
-  def handle({:drain_timeout, token}, %{drain: %{active: true, token: token} = drain} = state) do
-    state = %{state | drain: %{drain | timer: nil, token: nil}}
-    {:stop, :normal, ConnectionRequest.fail_pending(state, :connection_drained)}
-  end
-
-  def handle({:drain_timeout, _token}, state), do: {:noreply, state}
+  def handle({:drain_timeout, token}, state),
+    do: ConnectionDrainTimeoutRuntime.handle(token, state)
 
   def handle({:late_response_timeout, request_id, token}, state),
     do: ConnectionDiscardedResponse.expire(state, request_id, token)
@@ -145,6 +131,7 @@ defmodule FerricStore.SDK.Native.ConnectionInfoRuntime do
     end
   end
 
+  def handle(:continue_frames, %{drain: %{terminal: true}} = state), do: {:noreply, state}
   def handle(:continue_frames, state), do: ConnectionSocketRuntime.continue(state)
 
   def handle(:stop_when_drained, %{drain: %{active: true}, pending: pending} = state)
