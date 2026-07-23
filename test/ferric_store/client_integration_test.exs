@@ -725,8 +725,6 @@ defmodule FerricStore.ClientIntegrationTest do
                "~#{prefix}*",
                "-@all",
                "+PING",
-               "+SHARDS",
-               "+ROUTE",
                "+FLOW.QUERY",
                "+FLOW.QUERY.EXPLAIN"
              ])

@@ -473,6 +473,30 @@ defmodule FerricStore.Flow.V010QueryContractTest do
              QueryResponse.result(invalid)
   end
 
+  test "query response page validation is bounded and preserves error precedence" do
+    assert {:ok, %QueryResult{page: %{has_more: false, cursor: nil}}} =
+             QueryResponse.result(put_in(query_response(), ["page"], %{"has_more" => false}))
+
+    cases = [
+      {%{"has_more" => "true", "cursor" => <<0xFF>>}, :page_has_more, "true"},
+      {%{"has_more" => false, "cursor" => <<0xFF>>}, :page_cursor, <<0xFF>>},
+      {%{"has_more" => false, "cursor" => String.duplicate("x", 4_097)}, :page_cursor,
+       String.duplicate("x", 4_097)},
+      {%{"has_more" => true, "cursor" => "other_cursor"}, :page_cursor, "other_cursor"},
+      {%{"has_more" => true, "cursor" => nil}, :page_consistency,
+       %{"has_more" => true, "cursor" => nil}},
+      {%{"has_more" => false, "cursor" => "fqc1_page"}, :page_consistency,
+       %{"has_more" => false, "cursor" => "fqc1_page"}}
+    ]
+
+    for {page, field, value} <- cases do
+      assert {:error,
+              {:invalid_flow_query_response, :records,
+               {:invalid_flow_query_response, ^field, ^value}}} =
+               QueryResponse.result(put_in(query_response(), ["page"], page))
+    end
+  end
+
   test "list convenience compiles FQL instead of probing the removed opcode" do
     {:ok, client} = CaptureClient.start_link(self(), [{:ok, query_response()}])
 
