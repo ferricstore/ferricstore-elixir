@@ -8,7 +8,7 @@ defmodule FerricStore.Flow.Options.RequiredValueValidator do
     lease_token: [:complete, :fail, :retry, :transition],
     signal: [:signal],
     to_state: [:transition],
-    type: [:create, :create_many, :list, :search],
+    type: [:create, :create_many, :list, :search, :terminals, :failures, :stuck],
     worker: [:claim_due]
   }
   @nonnegative_integer_options %{

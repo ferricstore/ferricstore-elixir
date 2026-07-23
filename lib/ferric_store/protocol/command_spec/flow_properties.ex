@@ -7,20 +7,15 @@ defmodule FerricStore.Protocol.CommandSpec.FlowProperties do
       :flow_attribute_values,
       :flow_attributes,
       :flow_budget_list,
-      :flow_failures,
       :flow_governance_overview,
       :flow_info,
       :flow_limit_list,
-      :flow_list,
       :flow_policy_get,
       :flow_policy_set,
       :flow_retention_cleanup,
       :flow_schedule_fire_due,
       :flow_schedule_list,
-      :flow_search,
-      :flow_stats,
-      :flow_stuck,
-      :flow_terminals
+      :flow_stats
     ],
     schedule: [
       :flow_schedule_create,

@@ -1,7 +1,8 @@
 defmodule FerricStore.Protocol.ValueSizer do
   @moduledoc false
 
-  import FerricStore.Protocol.ValueDomain, only: [is_signed_64_integer: 1]
+  import FerricStore.Protocol.ValueDomain,
+    only: [is_signed_64_integer: 1, is_unsigned_64_integer: 1]
 
   alias FerricStore.Protocol.MapKey
   alias FerricStore.RequestLimits
@@ -25,9 +26,12 @@ defmodule FerricStore.Protocol.ValueSizer do
   defp do_encoded_size(value, _depth, remaining) when is_signed_64_integer(value),
     do: reserve_bytes(remaining, 9)
 
+  defp do_encoded_size(value, _depth, remaining) when is_unsigned_64_integer(value),
+    do: reserve_bytes(remaining, 9)
+
   defp do_encoded_size(value, _depth, _remaining) when is_integer(value) do
     raise ArgumentError,
-          "integer #{value} is outside the signed 64-bit native protocol domain"
+          "integer #{value} is outside the signed or unsigned 64-bit native protocol domain"
   end
 
   defp do_encoded_size(value, _depth, remaining) when is_binary(value),

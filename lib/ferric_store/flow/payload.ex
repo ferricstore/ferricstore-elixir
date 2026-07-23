@@ -4,10 +4,8 @@ defmodule FerricStore.Flow.Payload do
   alias FerricStore.Flow.Payload.{Batch, Mutation, Query}
 
   def get_payload(id, opts \\ []), do: Query.get_payload(id, opts)
-  def list_payload(opts), do: Query.list_payload(opts)
   def history_payload(id, opts \\ []), do: Query.history_payload(id, opts)
   def claim_due_payload(type, opts), do: Query.claim_due_payload(type, opts)
-  def search_payload(opts), do: Query.search_payload(opts)
 
   def create_payload(id, opts), do: Mutation.create_payload(id, opts)
   def transition_payload(id, opts), do: Mutation.transition_payload(id, opts)

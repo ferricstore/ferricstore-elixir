@@ -12,10 +12,14 @@ defmodule FerricStore.Flow.Options.MapPreparer do
       :create,
       :create_many,
       :fail,
+      :failures,
       :list,
       :retry,
       :search,
-      :transition
+      :transition,
+      :by_parent,
+      :by_root,
+      :by_correlation
     ],
     attributes_merge: [:cancel, :complete, :complete_many, :fail, :retry, :transition],
     state_meta: [

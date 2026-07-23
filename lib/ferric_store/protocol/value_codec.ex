@@ -62,6 +62,9 @@ defmodule FerricStore.Protocol.ValueCodec do
   defp do_decode(<<7, value::float-64, rest::binary>>, _depth, remaining),
     do: {:ok, value, rest, remaining}
 
+  defp do_decode(<<8, value::unsigned-64, rest::binary>>, _depth, remaining),
+    do: {:ok, value, rest, remaining}
+
   defp do_decode(<<type, count::32, _rest::binary>>, _depth, remaining)
        when type in [5, 6] and
               (count > @max_collection_items or count > remaining),

@@ -1,7 +1,15 @@
 defmodule FerricStore.ClientIntegrationTest do
   use ExUnit.Case, async: false
 
-  alias FerricStore.Flow.{PolicySnapshot, StalePolicyGenerationError}
+  alias FerricStore.Flow.{
+    PolicySnapshot,
+    QueryError,
+    QueryExplainResult,
+    QueryIndexStatus,
+    QueryResult,
+    StalePolicyGenerationError
+  }
+
   alias FerricStore.Protocol.Opcodes
   alias FerricStore.SDK
   alias FerricStore.SDK.{Admin, Flow}
@@ -258,6 +266,7 @@ defmodule FerricStore.ClientIntegrationTest do
       |> Keyword.keys()
       |> MapSet.new()
       |> MapSet.union(MapSet.new(flow_unsafe_invocation_functions()))
+      |> MapSet.put(:query)
 
     assert classified ==
              MapSet.new(Map.keys(Flow.opcodes()))
@@ -411,7 +420,15 @@ defmodule FerricStore.ClientIntegrationTest do
 
     assert_value_mget(client, ref, "large-value")
     assert is_map(FerricStore.Flow.get(client, id, payload: true, partition_key: partition_key))
-    assert is_list(FerricStore.Flow.list(client, type: type, state: "queued", count: 10))
+
+    assert is_list(
+             FerricStore.Flow.list(client,
+               type: type,
+               state: "queued",
+               partition_key: partition_key,
+               count: 10
+             )
+           )
 
     assert [{event_id, history_record} | _history] =
              FerricStore.Flow.history(client, id, partition_key: partition_key)
@@ -517,12 +534,243 @@ defmodule FerricStore.ClientIntegrationTest do
           partition_key: partition,
           state: "accept",
           state_meta: %{version: 1},
-          consistent_projection: true,
           count: 10
         )
 
       assert Enum.any?(records, &(&1["id"] == id))
     end)
+  end
+
+  test "FQL planner covers pagination, count, explain, catalog, and diagnostics", %{
+    client: client
+  } do
+    suffix = unique("query")
+    type = "#{suffix}-type"
+    partition = "#{suffix}-partition"
+    state = "query-ready"
+    now = System.system_time(:millisecond)
+    ids = Enum.map(0..2, &"#{suffix}-#{&1}")
+
+    Enum.with_index(ids, fn id, index ->
+      assert_okish(
+        FerricStore.Flow.create(client, id,
+          type: type,
+          state: state,
+          partition_key: partition,
+          now_ms: now + index
+        )
+      )
+    end)
+
+    query =
+      "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state ORDER BY updated_at_ms ASC LIMIT 2 RETURN RECORDS"
+
+    params = %{"partition" => partition, "type" => type, "state" => state}
+
+    assert_eventually(fn ->
+      assert %QueryResult{records: records, page: %{has_more: true}} =
+               FerricStore.Flow.query(client, query, params)
+
+      assert length(records) == 2
+    end)
+
+    assert %QueryResult{records: first_records, page: %{has_more: true, cursor: cursor}} =
+             FerricStore.Flow.query(client, query, params)
+
+    next_query =
+      "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state ORDER BY updated_at_ms ASC LIMIT 2 CURSOR @cursor RETURN RECORDS"
+
+    assert %QueryResult{records: second_records, page: %{has_more: false, cursor: nil}} =
+             FerricStore.Flow.query(client, next_query, Map.put(params, "cursor", cursor))
+
+    assert MapSet.new(Enum.map(first_records ++ second_records, & &1["id"])) == MapSet.new(ids)
+
+    count_query =
+      "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state RETURN COUNT"
+
+    assert %QueryResult{count: 3, records: nil, page: nil} =
+             FerricStore.Flow.query(client, count_query, params)
+
+    assert %QueryExplainResult{status: "planned", actual: nil} =
+             FerricStore.Flow.explain(client, query, params)
+
+    assert %QueryExplainResult{status: "executed", actual: %{result_records: 2}} =
+             FerricStore.Flow.explain_analyze(client, query, params)
+
+    assert %QueryIndexStatus{registry: %{catalog_version: version}, indexes: [_ | _]} =
+             FerricStore.Flow.query_indexes(client)
+
+    assert version > 0
+
+    assert {:error, %QueryError{code: "unsupported_field", position: position}} =
+             FerricStore.Flow.query(
+               client,
+               "FROM runs WHERE partition_key = @partition AND unsupported = 1 ORDER BY updated_at_ms ASC LIMIT 2 RETURN RECORDS",
+               %{"partition" => partition}
+             )
+
+    assert position.line == 1
+  end
+
+  test "FQL collection helpers cover terminal, lineage, and lease indexes", %{client: client} do
+    suffix = unique("query-collections")
+    type = "#{suffix}-type"
+    partition = "#{suffix}-partition"
+    parent_id = "#{suffix}-parent"
+    root_id = "#{suffix}-root"
+    correlation_id = "#{suffix}-correlation"
+    failed_id = "#{suffix}-failed"
+
+    assert_okish(
+      FerricStore.Flow.create(client, failed_id,
+        type: type,
+        state: "queued",
+        partition_key: partition,
+        parent_flow_id: parent_id,
+        root_flow_id: root_id,
+        correlation_id: correlation_id,
+        run_at_ms: 1_000,
+        now_ms: 1_000
+      )
+    )
+
+    [failed_job | _] =
+      claim_one(client, type, "queued", "#{suffix}-failure-worker",
+        partition_key: partition,
+        lease_ms: 60_000,
+        now_ms: 1_000
+      )
+
+    assert_okish(
+      FerricStore.Flow.fail(client, failed_id,
+        partition_key: partition,
+        lease_token: Map.fetch!(failed_job, "lease_token"),
+        fencing_token: Map.fetch!(failed_job, "fencing_token"),
+        error: "integration failure"
+      )
+    )
+
+    assert_eventually(fn ->
+      for records <- [
+            FerricStore.Flow.failures(client, type, partition_key: partition, count: 10),
+            FerricStore.Flow.terminals(client, type, partition_key: partition, count: 10),
+            FerricStore.Flow.by_parent(client, parent_id,
+              partition_key: partition,
+              count: 10
+            ),
+            FerricStore.Flow.by_root(client, root_id, partition_key: partition, count: 10),
+            FerricStore.Flow.by_correlation(client, correlation_id,
+              partition_key: partition,
+              count: 10
+            )
+          ] do
+        assert is_list(records)
+        assert Enum.any?(records, &(&1["id"] == failed_id))
+      end
+    end)
+
+    stuck_id = "#{suffix}-stuck"
+
+    assert_okish(
+      FerricStore.Flow.create(client, stuck_id,
+        type: type,
+        state: "waiting",
+        partition_key: partition,
+        run_at_ms: 1_000,
+        now_ms: 1_000
+      )
+    )
+
+    [stuck_job | _] =
+      claim_one(client, type, "waiting", "#{suffix}-stuck-worker",
+        partition_key: partition,
+        lease_ms: 60_000,
+        now_ms: 1_000
+      )
+
+    assert_eventually(fn ->
+      records =
+        FerricStore.Flow.stuck(client, type,
+          partition_key: partition,
+          count: 10,
+          older_than_ms: 1,
+          now_ms: 120_000
+        )
+
+      assert is_list(records)
+      assert Enum.any?(records, &(&1["id"] == stuck_id))
+    end)
+
+    assert_okish(
+      FerricStore.Flow.complete(client, stuck_id,
+        partition_key: partition,
+        lease_token: Map.fetch!(stuck_job, "lease_token"),
+        fencing_token: Map.fetch!(stuck_job, "fencing_token")
+      )
+    )
+  end
+
+  test "FQL planner enforces command, explain, partition, and catalog ACLs", %{client: admin} do
+    suffix = System.unique_integer([:positive, :monotonic])
+    username = "sdk_query_#{suffix}"
+    password = "query-secret-#{suffix}"
+    prefix = "elixir-sdk:security:#{suffix}"
+    partition = "#{prefix}:partition"
+    type = "elixir-sdk-security-query-#{suffix}"
+
+    assert {:ok, _value} =
+             SDK.acl_set_user(admin, username, [
+               "on",
+               ">#{password}",
+               "~#{prefix}*",
+               "-@all",
+               "+PING",
+               "+SHARDS",
+               "+ROUTE",
+               "+FLOW.QUERY",
+               "+FLOW.QUERY.EXPLAIN"
+             ])
+
+    on_exit(fn -> SDK.acl_del_user(admin, username) end)
+
+    assert_okish(
+      FerricStore.Flow.create(admin, "#{prefix}:flow",
+        type: type,
+        state: "ready",
+        partition_key: partition,
+        now_ms: System.system_time(:millisecond)
+      )
+    )
+
+    limited =
+      FerricStore.connect!(
+        url: @docker_url,
+        username: username,
+        password: password,
+        client_name: "ferricstore-elixir-query-acl"
+      )
+
+    on_exit(fn -> FerricStore.close(limited) end)
+
+    query =
+      "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state ORDER BY updated_at_ms ASC LIMIT 10 RETURN RECORDS"
+
+    params = %{"partition" => partition, "type" => type, "state" => "ready"}
+
+    assert_eventually(fn ->
+      assert %QueryResult{records: [_record]} = FerricStore.Flow.query(limited, query, params)
+    end)
+
+    assert %QueryExplainResult{status: "planned"} =
+             FerricStore.Flow.explain(limited, query, params)
+
+    denied_params = Map.put(params, "partition", "elixir-sdk:security-denied:#{suffix}")
+    assert {:error, denied_query} = FerricStore.Flow.query(limited, query, denied_params)
+    assert_error_message(denied_query, "NOPERM")
+    assert {:error, denied_explain} = FerricStore.Flow.explain(limited, query, denied_params)
+    assert_error_message(denied_explain, "NOPERM")
+    assert {:error, denied_catalog} = FerricStore.Flow.query_indexes(limited)
+    assert_error_message(denied_catalog, "NOPERM")
   end
 
   test "flow policy patch, replacement, and generation CAS use the 0.9.1 contract", %{
@@ -866,13 +1114,13 @@ defmodule FerricStore.ClientIntegrationTest do
         assert state_meta_value(flow, "accept", "version") == 1
 
         assert_eventually(fn ->
-          assert {:ok, records} =
-                   FerricStore.SDK.Flow.search(client, %{
-                     type: type,
-                     partition_key: partition,
-                     state_meta: %{accept: %{version: 1}},
-                     consistent_projection: true,
-                     count: 10
+          query =
+            "FROM runs WHERE partition_key = @partition AND state_meta['accept']['version'] = @version ORDER BY updated_at_ms DESC LIMIT 10 RETURN RECORDS"
+
+          assert {:ok, %FerricStore.Flow.QueryResult{records: records}} =
+                   FerricStore.SDK.Flow.query(client, query, %{
+                     "partition" => partition,
+                     "version" => 1
                    })
 
           assert Enum.any?(records, &(&1["id"] == id))
@@ -1067,7 +1315,6 @@ defmodule FerricStore.ClientIntegrationTest do
       value_put: %{value: "value"},
       value_mget: %{refs: []},
       signal: %{id: id, signal: "noop", payload: %{}},
-      list: %{type: type, state: "queued", count: 10},
       create_many: %{
         type: "#{type}-many",
         independent: true,
@@ -1081,19 +1328,12 @@ defmodule FerricStore.ClientIntegrationTest do
       cancel_many: %{items: []},
       reclaim: %{type: type, state: "running", worker: "#{base}-reclaimer", limit: 1},
       rewind: %{id: "#{base}-missing", partition_key: base, to_state: "queued"},
-      terminals: %{type: type},
-      failures: %{type: type},
-      by_parent: %{parent_id: parent_id},
-      by_root: %{root_id: root_id},
-      by_correlation: %{correlation_id: correlation_id},
       info: %{type: type},
-      stuck: %{type: type, now_ms: now_ms},
       policy_set: %{type: type, indexed_state_meta: "version"},
       policy_get: %{type: type},
       stats: %{type: type},
       attributes: %{type: type},
       attribute_values: %{type: type, attribute: "tenant"},
-      search: %{type: type, attributes: %{tenant: "acme"}, count: 10, terminal_only: true},
       governance_ledger: %{id: id},
       approval_get: %{id: "#{base}-approval"},
       circuit_get: %{scope: scope},

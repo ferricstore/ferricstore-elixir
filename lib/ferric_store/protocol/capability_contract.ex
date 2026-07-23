@@ -38,7 +38,7 @@ defmodule FerricStore.Protocol.CapabilityContract do
     "FLOW.FAIL" => ["id", "lease_token", "fencing_token"],
     "FLOW.GET" => ["id"],
     "FLOW.HISTORY" => ["id"],
-    "FLOW.LIST" => ["type"],
+    "FLOW.QUERY" => ["version", "query"],
     "FLOW.POLICY.GET" => ["type"],
     "FLOW.POLICY.SET" => ["type"],
     "FLOW.RETENTION_CLEANUP" => [],

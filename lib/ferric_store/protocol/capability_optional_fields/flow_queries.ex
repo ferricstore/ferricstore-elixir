@@ -3,18 +3,7 @@ defmodule FerricStore.Protocol.CapabilityOptionalFields.FlowQueries do
 
   @fields %{
     "FLOW.GET" => ["partition_key", "full", "payload", "payload_max_bytes", "values"],
-    "FLOW.LIST" => [
-      "state",
-      "partition_key",
-      "count",
-      "from_ms",
-      "to_ms",
-      "rev",
-      "attributes",
-      "include_cold",
-      "consistent_projection",
-      "return"
-    ],
+    "FLOW.QUERY" => ["params"],
     "FLOW.CLAIM_DUE" => [
       "states",
       "limit",

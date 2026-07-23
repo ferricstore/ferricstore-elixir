@@ -2,8 +2,8 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public beta `0.4.2`. This release requires FerricStore `~> 0.9.1`.
-FerricStore 0.9 is a breaking beta API contract; native wire framing remains
+Status: public beta `0.5.0`. This release requires FerricStore `~> 0.10.0`.
+FerricStore 0.10 is a breaking beta API contract; native wire framing remains
 protocol v1. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
@@ -30,7 +30,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.4.2"}
+    {:ferricstore_sdk, "~> 0.5.0"}
   ]
 end
 ```
@@ -44,19 +44,16 @@ mix test
 
 ### 2. Start FerricStore
 
-For local development, build server revision
-`11456cc0e5f099b72aac56ffe6acd8b6f3fd1624` with the SDK helper and run it:
+For local development, run the same immutable FerricStore 0.10.1 image used by
+the SDK integration workflow:
 
 ```bash
-FERRICSTORE_TEST_IMAGE=ferricstore-sdk-contract \
-  scripts/build_integration_server.sh
-
 docker run --rm \
   -e FERRICSTORE_PROTECTED_MODE=false \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ferricstore-sdk-contract
+  ghcr.io/ferricstore/ferricstore:0.10.1@sha256:198cffba8e2df2f5f66db9e6bbef83131f4841d4b90c65ee8091ac463ec6715d
 ```
 
 The SDK examples assume:
@@ -74,7 +71,29 @@ ferric://127.0.0.1:6388
 "world" = FerricStore.get(client, "hello")
 ```
 
-### 4. Create a durable queue item
+### 4. Query durable runs
+
+Use parameterized FQL for bounded, partition-scoped reads. Cursors are opaque
+and must be reused with the same query and parameters.
+
+```elixir
+query = """
+FROM runs
+WHERE partition_key = @partition AND type = @type AND state = @state
+ORDER BY updated_at_ms ASC
+LIMIT 25
+RETURN RECORDS
+"""
+
+params = %{"partition" => "partition-a", "type" => "invoice", "state" => "queued"}
+%FerricStore.Flow.QueryResult{records: records, page: page} =
+  FerricStore.Flow.query(client, query, params)
+
+%FerricStore.Flow.QueryExplainResult{} = FerricStore.Flow.explain(client, query, params)
+%FerricStore.Flow.QueryIndexStatus{} = FerricStore.Flow.query_indexes(client)
+```
+
+### 5. Create a durable queue item
 
 ```elixir
 queue = FerricStore.Queue.new(client, "email", worker: "email-worker")
@@ -339,15 +358,5 @@ Integration tests are explicit ExUnit integration tests. They run against the
 same Docker image used by CI:
 
 ```bash
-FERRICSTORE_TEST_IMAGE=ferricstore-sdk-contract \
-  scripts/build_integration_server.sh
-
-docker run --rm \
-  -e FERRICSTORE_PROTECTED_MODE=false \
-  -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
-  -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
-  -p 6388:6388 \
-  ferricstore-sdk-contract
-
-mix test --only integration
+scripts/test_integration.sh
 ```

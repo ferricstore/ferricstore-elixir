@@ -1,20 +1,8 @@
 defmodule FerricStore.Flow.Options.PartitionValueValidator do
   @moduledoc false
 
-  @standard_operations [
-    :cancel,
-    :complete,
-    :complete_many,
-    :create,
-    :create_many,
-    :fail,
-    :get,
-    :history,
-    :retry,
-    :signal,
-    :transition,
-    :value_put
-  ]
+  @standard_operations ~w(cancel complete complete_many create create_many fail get history retry signal transition value_put)a
+  @auto_operations ~w(list search terminals failures by_parent by_root by_correlation stuck)a
   @spec validate(atom(), keyword()) :: :ok | {:error, term()}
   def validate(operation, opts) do
     domain = domain(operation)
@@ -26,7 +14,8 @@ defmodule FerricStore.Flow.Options.PartitionValueValidator do
     end
   end
 
-  defp domain(operation) when operation in [:list, :search], do: :auto
+  defp domain(operation) when operation in @auto_operations, do: :auto
+
   defp domain(:claim_due), do: :claim
   defp domain(operation) when operation in @standard_operations, do: :standard
   defp domain(_operation), do: nil

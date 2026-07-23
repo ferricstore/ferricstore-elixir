@@ -47,8 +47,17 @@ defmodule FerricStore.Flow.Options.StringValueValidator do
   defp validate_state(operation, opts) when operation in [:create, :create_many],
     do: validate_present(operation, opts, :state, :nonempty_binary)
 
-  defp validate_state(operation, opts) when operation in [:claim_due, :list, :search],
-    do: validate_present(operation, opts, :state, :state_selector)
+  defp validate_state(operation, opts)
+       when operation in [
+              :claim_due,
+              :list,
+              :search,
+              :terminals,
+              :by_parent,
+              :by_root,
+              :by_correlation
+            ],
+       do: validate_present(operation, opts, :state, :state_selector)
 
   defp validate_state(_operation, _opts), do: :ok
 

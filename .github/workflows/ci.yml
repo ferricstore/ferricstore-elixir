@@ -32,18 +32,10 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
+    env:
+      FERRICSTORE_TEST_IMAGE: "ghcr.io/ferricstore/ferricstore:0.10.1@sha256:198cffba8e2df2f5f66db9e6bbef83131f4841d4b90c65ee8091ac463ec6715d"
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/checkout@v5
-        with:
-          repository: ferricstore/ferricstore
-          ref: 11456cc0e5f099b72aac56ffe6acd8b6f3fd1624
-          path: ferricstore-server
-      - name: Build the pinned compatible FerricStore server
-        run: >-
-          FERRICSTORE_SERVER_SOURCE=ferricstore-server
-          FERRICSTORE_TEST_IMAGE=ferricstore-sdk-contract
-          scripts/build_integration_server.sh
       - name: Start FerricStore
         run: >-
           docker run --detach --rm --name ferricstore-sdk-contract
@@ -53,7 +45,7 @@ jobs:
           --env FERRICSTORE_NATIVE_PORT=6388
           --env FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1
           --env FERRICSTORE_NATIVE_ADVERTISE_PORT=6388
-          --publish 6388:6388 ferricstore-sdk-contract
+          --publish 6388:6388 "$FERRICSTORE_TEST_IMAGE"
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "29"

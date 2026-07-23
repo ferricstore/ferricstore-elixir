@@ -4,6 +4,7 @@ defmodule FerricStore.SDK.Native.ServerContract do
   alias FerricStore.{Protocol.CapabilityContract, Types}
 
   alias FerricStore.SDK.Native.{
+    FlowQueryContract,
     ServerContractCollections,
     ServerContractProtocol,
     ServerContractResponses,
@@ -19,6 +20,7 @@ defmodule FerricStore.SDK.Native.ServerContract do
          {:ok, capabilities} <- fetch_map(startup, "capabilities"),
          :ok <- ServerContractProtocol.validate_capabilities(capabilities),
          :ok <- ServerContractResponses.validate(capabilities),
+         :ok <- FlowQueryContract.validate(capabilities),
          {:ok, schemas} <- fetch_map(capabilities, "schemas"),
          :ok <- validate_schemas(schemas),
          :ok <- validate_opcodes(capabilities),

@@ -21,6 +21,7 @@ defmodule FerricStore.ProtocolTest do
       true,
       false,
       -42,
+      18_446_744_073_709_551_615,
       "binary",
       :atom,
       1.5,
@@ -81,19 +82,27 @@ defmodule FerricStore.ProtocolTest do
     assert :binary.referenced_byte_size(decoded_value) <= byte_size(decoded_value) * 2
   end
 
-  test "rejects integers outside the signed 64-bit wire domain" do
+  test "round-trips signed and unsigned 64-bit wire integers" do
     min = -9_223_372_036_854_775_808
-    max = 9_223_372_036_854_775_807
+    max_signed = 9_223_372_036_854_775_807
+    max_unsigned = 18_446_744_073_709_551_615
 
     assert {:ok, ^min, ""} = min |> Protocol.encode_value() |> Protocol.decode_value()
-    assert {:ok, ^max, ""} = max |> Protocol.encode_value() |> Protocol.decode_value()
 
-    assert_raise ArgumentError, ~r/signed 64-bit/, fn ->
-      Protocol.encode_value(max + 1)
+    assert {:ok, ^max_signed, ""} =
+             max_signed |> Protocol.encode_value() |> Protocol.decode_value()
+
+    assert <<8, ^max_unsigned::unsigned-64>> = Protocol.encode_value(max_unsigned)
+
+    assert {:ok, ^max_unsigned, ""} =
+             max_unsigned |> Protocol.encode_value() |> Protocol.decode_value()
+
+    assert_raise ArgumentError, ~r/signed or unsigned 64-bit/, fn ->
+      Protocol.encode_value(min - 1)
     end
 
-    assert_raise ArgumentError, ~r/signed 64-bit/, fn ->
-      Protocol.encode_value(min - 1)
+    assert_raise ArgumentError, ~r/signed or unsigned 64-bit/, fn ->
+      Protocol.encode_value(max_unsigned + 1)
     end
   end
 
@@ -284,10 +293,10 @@ defmodule FerricStore.ProtocolTest do
     assert body_len == byte_size(body)
   end
 
-  test "exposes state metadata policy and search opcodes" do
+  test "exposes state metadata policy and the consolidated query opcode" do
     assert Protocol.opcode(:flow_policy_set) == 0x021E
     assert Protocol.opcode(:flow_policy_get) == 0x021F
-    assert Protocol.opcode(:flow_search) == 0x0230
+    assert Protocol.opcode(:flow_query) == 0x0231
   end
 
   test "resolves newer native opcodes through the complete SDK table" do
@@ -668,7 +677,6 @@ defmodule FerricStore.ProtocolTest do
         Protocol.encode_value(%{"tenant" => "acme"})
       ])
 
-    record_list = <<0x85, 1::32, record::binary>>
     list_list = <<0x86, 2::32, 2::32, 1::32, "a", 2::32, "bb", 0::32>>
     map_list = <<0x87, 1::32, 1::32, 5::32, "field", 5::32, "value">>
     integers = <<0x88, 3::32, -1::signed-64, 0::signed-64, 9::signed-64>>
@@ -681,15 +689,6 @@ defmodule FerricStore.ProtocolTest do
          "state" => "queued",
          "attributes" => %{"tenant" => "acme"}
        }},
-      {0x020E, record_list,
-       [
-         %{
-           "id" => "flow-1",
-           "type" => "email",
-           "state" => "queued",
-           "attributes" => %{"tenant" => "acme"}
-         }
-       ]},
       {0x000E, list_list, [["a", "bb"], []]},
       {0x000E, map_list, [%{"field" => "value"}]},
       {0x000E, integers, [-1, 0, 9]}

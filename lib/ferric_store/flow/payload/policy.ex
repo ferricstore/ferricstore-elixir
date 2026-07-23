@@ -14,7 +14,8 @@ defmodule FerricStore.Flow.Payload.Policy do
       {_state, nil} ->
         nil
 
-      {state, state_meta} when is_binary(state) and is_map(state_meta) ->
+      {state, state_meta}
+      when is_binary(state) and state not in ["", "any"] and is_map(state_meta) ->
         normalize_state_scoped_meta(state, state_meta)
 
       {_state, state_meta} ->

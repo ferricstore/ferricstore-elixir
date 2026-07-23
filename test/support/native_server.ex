@@ -37,13 +37,40 @@ defmodule FerricStore.Test.NativeServer do
         "response_codecs" => %{
           "compact_response_opcodes" => %{
             "flow_claim_jobs_v1" => [0x0203],
-            "flow_record_list_v1" => [0x020E, 0x0217, 0x0218, 0x0219, 0x021A, 0x021B, 0x021D],
             "flow_record_v1" => [0x0202],
             "kv_get_v1" => [0x0101],
             "kv_mget_v1" => [0x0104, 0x020C],
             "ok_list_v1" => [0x0102, 0x0105, 0x020F, 0x0210, 0x0212, 0x0213, 0x0214],
             "pipeline_v1" => [0x000E]
           }
+        },
+        "flow_query" => %{
+          "request_contract" => "ferric.flow.query.request/v1",
+          "result_contract" => "ferric.flow.query.result/v1",
+          "explain_contract" => "ferric.flow.explain/v1",
+          "index_status_contract" => "ferric.flow.query.indexes/v1",
+          "capabilities" => [
+            "flow_query_v1",
+            "flow_explain_v1",
+            "flow_explain_analyze_v1",
+            "flow_composite_index_v1",
+            "flow_query_index_status_v1"
+          ],
+          "language_versions" => ["FQL1"],
+          "shapes" => [
+            "runs_by_run_id_record",
+            "runs_by_partition_and_run_id_record",
+            "runs_by_partition_predicates_ordered_records",
+            "runs_by_partition_type_state_ordered_records",
+            "runs_by_partition_type_terminals_ordered_records",
+            "runs_by_partition_metadata_ordered_records",
+            "runs_by_partition_type_running_lease_deadline_ordered_records",
+            "runs_by_partition_parent_ordered_records",
+            "runs_by_partition_root_ordered_records",
+            "runs_by_partition_correlation_ordered_records",
+            "runs_by_partition_predicates_count",
+            "events_by_run_id_ordered_records"
+          ]
         },
         "schemas" => schemas,
         "opcodes" => opcodes

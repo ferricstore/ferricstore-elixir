@@ -151,8 +151,9 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     refute topology_test =~ "monotonic_time"
   end
 
-  test "CI and release validate against the pinned current server contract" do
-    server_ref = "11456cc0e5f099b72aac56ffe6acd8b6f3fd1624"
+  test "CI and release validate against the immutable released server contract" do
+    release_image =
+      "ghcr.io/ferricstore/ferricstore:0.10.1@sha256:198cffba8e2df2f5f66db9e6bbef83131f4841d4b90c65ee8091ac463ec6715d"
 
     refute File.exists?(Path.expand("../../../scripts/server_build_compat.patch", __DIR__))
 
@@ -162,27 +163,17 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
         ] do
       source = File.read!(Path.expand(workflow, __DIR__))
 
-      assert source =~ "repository: ferricstore/ferricstore"
-      assert source =~ "ref: #{server_ref}"
-      assert source =~ "FERRICSTORE_SERVER_SOURCE=ferricstore-server"
-      assert source =~ "scripts/build_integration_server.sh"
-      refute source =~ "sha256:423e498ecb76e986da51fb1675c215f317e1e38bcaa6b66274bbe65207e45311"
-    end
-
-    for path <- [
-          "../../../scripts/test_integration.sh",
-          "../../../README.md",
-          "../../../docs/benchmark.md",
-          "../../../docs/quickstart.md",
-          "../../../docs/testing.md"
-        ] do
-      assert path |> Path.expand(__DIR__) |> File.read!() =~ server_ref
+      assert source =~ "FERRICSTORE_TEST_IMAGE: \"#{release_image}\""
+      assert source =~ ~s|"$FERRICSTORE_TEST_IMAGE"|
+      refute source =~ "repository: ferricstore/ferricstore"
+      refute source =~ "scripts/build_integration_server.sh"
     end
 
     integration_script =
       File.read!(Path.expand("../../../scripts/test_integration.sh", __DIR__))
 
-    assert integration_script =~ "build_integration_server.sh"
+    assert integration_script =~ release_image
+    refute integration_script =~ "build_integration_server.sh"
     assert integration_script =~ "mise exec -- mix run"
     assert integration_script =~ "mise exec -- mix test"
 

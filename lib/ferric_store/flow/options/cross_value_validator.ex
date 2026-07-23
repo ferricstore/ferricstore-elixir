@@ -2,7 +2,7 @@ defmodule FerricStore.Flow.Options.CrossValueValidator do
   @moduledoc false
 
   @max_exact 9_007_199_254_740_991
-
+  @range_operations ~w(history list search terminals failures by_parent by_root by_correlation)a
   @spec validate(atom(), keyword()) :: :ok | {:error, term()}
   def validate(operation, opts) do
     with :ok <- validate_ranges(operation, opts),
@@ -12,7 +12,7 @@ defmodule FerricStore.Flow.Options.CrossValueValidator do
          do: validate_deadline(operation, opts)
   end
 
-  defp validate_ranges(operation, opts) when operation in [:history, :list, :search] do
+  defp validate_ranges(operation, opts) when operation in @range_operations do
     with :ok <- ordered(operation, opts, :from_ms, :to_ms),
          :ok <- ordered(operation, opts, :from_version, :to_version),
          do: ordered_events(operation, opts)

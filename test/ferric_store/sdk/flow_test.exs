@@ -1,7 +1,7 @@
 defmodule FerricStore.SDK.FlowTest do
   use ExUnit.Case, async: true
 
-  alias FerricStore.Flow.PolicySnapshot
+  alias FerricStore.Flow.{PolicySnapshot, QueryResult}
   alias FerricStore.Protocol.Opcodes
   alias FerricStore.RequestLimits
   alias FerricStore.SDK.Flow
@@ -49,6 +49,33 @@ defmodule FerricStore.SDK.FlowTest do
       |> Map.merge(%{"generation" => 1, "states" => Map.get(payload, "states", %{})})
     end
 
+    defp reply(unquote(Opcodes.flow_query()), _payload) do
+      %{
+        "version" => "ferric.flow.query.result/v1",
+        "records" => [],
+        "page" => %{"has_more" => false, "cursor" => nil},
+        "quality" => %{
+          "exactness" => "exact",
+          "freshness" => "authoritative",
+          "coverage" => "complete",
+          "pagination" => "stable"
+        },
+        "usage" => %{
+          "range_seeks" => 0,
+          "range_pages" => 0,
+          "scanned_entries" => 0,
+          "scanned_bytes" => 0,
+          "hydrated_records" => 0,
+          "residual_checks" => 0,
+          "duplicate_entries" => 0,
+          "result_records" => 0,
+          "response_bytes" => 0,
+          "memory_high_water_bytes" => 0,
+          "wall_time_us" => 0
+        }
+      }
+    end
+
     defp reply(_opcode, payload), do: payload
   end
 
@@ -94,21 +121,23 @@ defmodule FerricStore.SDK.FlowTest do
     {:ok, client: client}
   end
 
-  test "latest flow search wrapper routes by partition key and keeps terminal filter", %{
+  test "query wrapper uses the consolidated typed native opcode", %{
     client: client
   } do
-    assert {:ok, %{"type" => "review", "partition_key" => "tenant:a", "terminal_only" => true}} =
-             Flow.search(client, %{type: "review", partition_key: "tenant:a", terminal_only: true})
+    query =
+      "FROM runs WHERE partition_key = @tenant ORDER BY updated_at_ms DESC LIMIT 10 RETURN RECORDS"
 
-    assert_received {:request_by_key, opcode, route,
+    assert {:ok, %QueryResult{records: []}} =
+             Flow.query(client, query, %{"tenant" => "tenant:a"})
+
+    assert_received {:request, opcode,
                      %{
-                       "type" => "review",
-                       "partition_key" => "tenant:a",
-                       "terminal_only" => true
+                       "version" => "FQL1",
+                       "query" => ^query,
+                       "params" => %{"tenant" => "tenant:a"}
                      }, []}
 
-    assert opcode == Opcodes.flow_search()
-    assert route == partition_route_key("tenant:a")
+    assert opcode == Opcodes.flow_query()
   end
 
   test "latest schedule wrapper uses typed schedule opcode", %{client: client} do

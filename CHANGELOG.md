@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.0
+
+- Require FerricStore 0.10.0 and negotiate the complete OSS FQL1 query,
+  explain, index-status, result-shape, and diagnostic contracts during HELLO.
+- Add typed `query/4`, `explain/4`, `explain_analyze/4`, and
+  `query_indexes/3` APIs with bounded inputs, opaque cursors, actionable
+  diagnostics, and exact unsigned 64-bit index generations.
+- Compile collection convenience functions to partition-scoped FQL and remove
+  the superseded collection opcodes from the native command surface.
+- Cover pagination, count, explain/analyze, index status, eventual projection,
+  and scoped query ACL behavior in unit and live integration tests.
+- Pin live integration to the immutable FerricStore 0.10.1 release and exact
+  OSS core commit while retaining `~> 0.10.0` compatibility.
+- Reject incompatible index-status contracts during HELLO, validate FQL text
+  identifiers and explain fingerprints, and preserve Flow metadata
+  normalization in collection query builders.
+- Keep `list`, `search`, `terminals`, `failures`, lineage, and `stuck`
+  conveniences on the unified query opcode, and reject unbounded collection
+  shapes before transport.
+- Reject malformed UTF-8 query response text and quality labels over 64 bytes
+  before returning server metadata.
+
 ## 0.4.2
 
 - Preserve already-decoded acknowledged results across fatal connection

@@ -3,25 +3,14 @@ defmodule FerricStore.Flow.Options.QuerySchema do
 
   @transport [:timeout, :call_timeout, :lane_id]
   @codec [:codec]
+  @ordered_collection ~w(partition_key count from_ms to_ms rev include_cold consistent_projection)a
 
   @schemas %{
     get:
       {[], [:partition_key, :full, :payload, :payload_max_bytes, :values] ++ @codec ++ @transport},
     list:
       {[:type],
-       [
-         :type,
-         :state,
-         :partition_key,
-         :count,
-         :from_ms,
-         :to_ms,
-         :rev,
-         :attributes,
-         :include_cold,
-         :consistent_projection,
-         :return
-       ] ++ @codec ++ @transport},
+       [:type, :state, :attributes, :return | @ordered_collection] ++ @codec ++ @transport},
     history:
       {[],
        [
@@ -93,6 +82,14 @@ defmodule FerricStore.Flow.Options.QuerySchema do
          :attributes,
          :state_meta
        ] ++ @codec ++ @transport},
+    terminals: {[:type], [:type, :state | @ordered_collection] ++ @codec ++ @transport},
+    failures: {[:type], [:type, :attributes | @ordered_collection] ++ @codec ++ @transport},
+    by_parent: {[], [:state, :attributes | @ordered_collection] ++ @codec ++ @transport},
+    by_root: {[], [:state, :attributes | @ordered_collection] ++ @codec ++ @transport},
+    by_correlation: {[], [:state, :attributes | @ordered_collection] ++ @codec ++ @transport},
+    stuck:
+      {[:type, :partition_key],
+       [:type, :partition_key, :count, :older_than_ms, :now_ms] ++ @codec ++ @transport},
     value_put:
       {[],
        [

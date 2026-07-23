@@ -34,6 +34,27 @@ defmodule FerricStore.Flow do
   def history(client, id, opts \\ []), do: QueryCommands.history(client, id, opts)
   def claim_due(client, type, opts), do: QueryCommands.claim_due(client, type, opts)
   def search(client, opts \\ []), do: QueryCommands.search(client, opts)
+  def terminals(client, type, opts \\ []), do: QueryCommands.terminals(client, type, opts)
+  def failures(client, type, opts \\ []), do: QueryCommands.failures(client, type, opts)
+  def by_parent(client, id, opts \\ []), do: QueryCommands.by_parent(client, id, opts)
+  def by_root(client, id, opts \\ []), do: QueryCommands.by_root(client, id, opts)
+
+  def by_correlation(client, id, opts \\ []),
+    do: QueryCommands.by_correlation(client, id, opts)
+
+  def stuck(client, type, opts \\ []), do: QueryCommands.stuck(client, type, opts)
+
+  def query(client, query, params \\ %{}, opts \\ []),
+    do: QueryCommands.query(client, query, params, opts)
+
+  def explain(client, query, params \\ %{}, opts \\ []),
+    do: QueryCommands.explain(client, query, params, opts)
+
+  def explain_analyze(client, query, params \\ %{}, opts \\ []),
+    do: QueryCommands.explain_analyze(client, query, params, opts)
+
+  def query_indexes(client, index_id \\ nil, opts \\ []),
+    do: QueryCommands.query_indexes(client, index_id, opts)
 
   @doc """
   Deep-patches a Flow type policy and returns its typed snapshot.
@@ -55,7 +76,6 @@ defmodule FerricStore.Flow do
   def value_mget(client, refs, opts \\ []), do: ValueCommands.mget(client, refs, opts)
 
   def get_payload(id, opts \\ []), do: Payload.get_payload(id, opts)
-  def list_payload(opts), do: Payload.list_payload(opts)
   def history_payload(id, opts \\ []), do: Payload.history_payload(id, opts)
   def create_payload(id, opts), do: Payload.create_payload(id, opts)
   def create_many_payload(items, opts), do: Payload.create_many_payload(items, opts)
@@ -67,7 +87,6 @@ defmodule FerricStore.Flow do
   def cancel_payload(id, opts), do: Payload.cancel_payload(id, opts)
   def signal_payload(id, opts), do: Payload.signal_payload(id, opts)
   def complete_many_payload(jobs, opts \\ []), do: Payload.complete_many_payload(jobs, opts)
-  def search_payload(opts), do: Payload.search_payload(opts)
 
   def policy_set_payload(type, opts), do: unwrap_policy(PolicyCommand.set_payload(type, opts))
 

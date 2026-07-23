@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-SERVER_REF="${FERRICSTORE_SERVER_REF:-11456cc0e5f099b72aac56ffe6acd8b6f3fd1624}"
-IMAGE="${FERRICSTORE_TEST_IMAGE:-ferricstore-sdk-contract:${SERVER_REF:0:12}}"
+IMAGE="${FERRICSTORE_TEST_IMAGE:-ghcr.io/ferricstore/ferricstore:0.10.1@sha256:198cffba8e2df2f5f66db9e6bbef83131f4841d4b90c65ee8091ac463ec6715d}"
 CONTAINER="${FERRICSTORE_TEST_CONTAINER:-ferricstore-elixir-integration-$$}"
 HOST="${FERRICSTORE_TEST_HOST:-127.0.0.1}"
 PORT="${FERRICSTORE_TEST_PORT:-6388}"
@@ -16,12 +14,6 @@ cleanup() {
 trap cleanup EXIT
 
 cleanup
-
-if [[ -z "${FERRICSTORE_TEST_IMAGE:-}" ]] && ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  FERRICSTORE_SERVER_REF="$SERVER_REF" \
-    FERRICSTORE_TEST_IMAGE="$IMAGE" \
-    "$SCRIPT_DIR/build_integration_server.sh"
-fi
 
 docker run -d --name "$CONTAINER" \
   -e FERRICSTORE_PROTECTED_MODE=false \

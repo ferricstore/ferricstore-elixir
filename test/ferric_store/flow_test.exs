@@ -140,13 +140,35 @@ defmodule FerricStore.FlowTest do
     defp reply(unquote(FerricStore.Protocol.opcode(:flow_get)), payload),
       do: %{"id" => payload["id"]}
 
-    defp reply(opcode, _payload)
-         when opcode in [
-                unquote(FerricStore.Protocol.opcode(:flow_list)),
-                unquote(FerricStore.Protocol.opcode(:flow_history)),
-                unquote(FerricStore.Protocol.opcode(:flow_search))
-              ],
-         do: []
+    defp reply(unquote(FerricStore.Protocol.opcode(:flow_history)), _payload),
+      do: []
+
+    defp reply(unquote(FerricStore.Protocol.opcode(:flow_query)), _payload) do
+      %{
+        "version" => "ferric.flow.query.result/v1",
+        "records" => [],
+        "page" => %{"has_more" => false, "cursor" => nil},
+        "quality" => %{
+          "exactness" => "exact",
+          "freshness" => "authoritative",
+          "coverage" => "complete",
+          "pagination" => "stable"
+        },
+        "usage" => %{
+          "range_seeks" => 0,
+          "range_pages" => 0,
+          "scanned_entries" => 0,
+          "scanned_bytes" => 0,
+          "hydrated_records" => 0,
+          "residual_checks" => 0,
+          "duplicate_entries" => 0,
+          "result_records" => 0,
+          "response_bytes" => 0,
+          "memory_high_water_bytes" => 0,
+          "wall_time_us" => 0
+        }
+      }
+    end
 
     defp reply(opcode, payload)
          when opcode in [
@@ -286,7 +308,7 @@ defmodule FerricStore.FlowTest do
     end)
   end
 
-  test "legacy-prone Flow helpers use canonical typed payloads" do
+  test "Flow collection helpers compile canonical FQL payloads" do
     {:ok, client} = CaptureNativeClient.start_link(self())
 
     assert [] =
@@ -299,25 +321,28 @@ defmodule FerricStore.FlowTest do
                to_ms: 20,
                rev: true,
                attributes: %{tenant: "acme"},
-               include_cold: true,
-               consistent_projection: true
+               include_cold: false,
+               consistent_projection: false
              )
 
     assert_received {:native, list_opcode,
                      %{
-                       "type" => "review",
-                       "state" => "queued",
-                       "partition_key" => "tenant:a",
-                       "count" => 20,
-                       "from_ms" => 10,
-                       "to_ms" => 20,
-                       "rev" => true,
-                       "attributes" => %{"tenant" => "acme"},
-                       "include_cold" => true,
-                       "consistent_projection" => true
+                       "version" => "FQL1",
+                       "query" => query,
+                       "params" => %{
+                         "partition_key" => "tenant:a",
+                         "type" => "review",
+                         "state" => "queued",
+                         "attribute_0" => "acme",
+                         "from_ms" => 10,
+                         "to_ms" => 20
+                       }
                      }, []}
 
-    assert list_opcode == Protocol.opcode(:flow_list)
+    assert list_opcode == Protocol.opcode(:flow_query)
+
+    assert query ==
+             "FROM runs WHERE partition_key = @partition_key AND type = @type AND state = @state AND attribute['tenant'] = @attribute_0 AND updated_at_ms BETWEEN @from_ms AND @to_ms ORDER BY updated_at_ms DESC LIMIT 20 RETURN RECORDS"
 
     assert [] =
              Flow.history(client, "flow-1",
@@ -1559,7 +1584,7 @@ defmodule FerricStore.FlowTest do
     refute Map.has_key?(fail, "error")
   end
 
-  test "builds flow policy and search payloads for indexed state metadata" do
+  test "builds flow policies for indexed state metadata" do
     assert Flow.policy_set_payload("review", indexed_state_meta: "version") == %{
              "type" => "review",
              "indexed_state_meta" => "version"
@@ -1568,24 +1593,6 @@ defmodule FerricStore.FlowTest do
     assert Flow.policy_set_payload("review", indexed_state_meta: nil) == %{
              "type" => "review",
              "indexed_state_meta" => nil
-           }
-
-    assert Flow.search_payload(
-             type: "review",
-             state: "accept",
-             partition_key: "tenant-1",
-             state_meta: %{version: 1},
-             consistent_projection: true,
-             terminal_only: true,
-             count: 10
-           ) == %{
-             "type" => "review",
-             "state" => "accept",
-             "partition_key" => "tenant-1",
-             "state_meta" => %{"accept" => %{"version" => 1}},
-             "consistent_projection" => true,
-             "terminal_only" => true,
-             "count" => 10
            }
   end
 
@@ -1998,10 +2005,8 @@ defmodule FerricStore.FlowTest do
   test "Flow reads reject malformed record response shapes" do
     cases = [
       {:get, "OK", :expected_record_or_nil, fn client -> Flow.get(client, "flow-1") end},
-      {:list, %{}, :expected_record_list, fn client -> Flow.list(client, type: "email") end},
       {:history, [["1-0", %{}], "bad"], :invalid_history_entry,
-       fn client -> Flow.history(client, "flow-1") end},
-      {:search, nil, :expected_record_list, fn client -> Flow.search(client, type: "email") end}
+       fn client -> Flow.history(client, "flow-1") end}
     ]
 
     for {operation, response, reason, call} <- cases do

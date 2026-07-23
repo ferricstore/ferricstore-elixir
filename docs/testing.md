@@ -17,9 +17,9 @@ compatible FerricStore revision pinned by the SDK.
 scripts/test_integration.sh
 ```
 
-The script builds commit `11456cc0e5f099b72aac56ffe6acd8b6f3fd1624`, waits for
-native startup, runs `mix test --only integration`, and removes the container.
-Set `FERRICSTORE_TEST_IMAGE` to test a prebuilt compatible image instead.
+The script runs the immutable FerricStore 0.10.1 release image, waits for native
+startup, runs `mix test --only integration`, and removes the container. Set
+`FERRICSTORE_TEST_IMAGE` to test another compatible image instead.
 
 Use `FERRICSTORE_TEST_PORT` when the local port is different:
 

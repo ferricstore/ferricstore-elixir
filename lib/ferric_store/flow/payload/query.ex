@@ -1,10 +1,7 @@
 defmodule FerricStore.Flow.Payload.Query do
   @moduledoc false
 
-  import FerricStore.Flow.Payload.Normalize,
-    only: [put_if_present: 3, stringify_map: 1]
-
-  alias FerricStore.Flow.Payload.Policy
+  import FerricStore.Flow.Payload.Normalize, only: [put_if_present: 3]
 
   def get_payload(id, opts) do
     %{"id" => id}
@@ -13,20 +10,6 @@ defmodule FerricStore.Flow.Payload.Query do
     |> put_if_present("payload", Keyword.get(opts, :payload))
     |> put_if_present("payload_max_bytes", Keyword.get(opts, :payload_max_bytes))
     |> put_if_present("values", Keyword.get(opts, :values))
-  end
-
-  def list_payload(opts) do
-    %{"type" => Keyword.fetch!(opts, :type)}
-    |> put_if_present("state", Keyword.get(opts, :state))
-    |> put_if_present("partition_key", Keyword.get(opts, :partition_key))
-    |> put_if_present("count", Keyword.get(opts, :count))
-    |> put_if_present("from_ms", Keyword.get(opts, :from_ms))
-    |> put_if_present("to_ms", Keyword.get(opts, :to_ms))
-    |> put_if_present("rev", Keyword.get(opts, :rev))
-    |> put_if_present("attributes", stringify_map(Keyword.get(opts, :attributes)))
-    |> put_if_present("include_cold", Keyword.get(opts, :include_cold))
-    |> put_if_present("consistent_projection", Keyword.get(opts, :consistent_projection))
-    |> put_if_present("return", Keyword.get(opts, :return))
   end
 
   def history_payload(id, opts) do
@@ -68,20 +51,6 @@ defmodule FerricStore.Flow.Payload.Query do
     |> put_if_present("value_max_bytes", Keyword.get(opts, :value_max_bytes))
     |> put_if_present("reclaim_expired", Keyword.get(opts, :reclaim_expired))
     |> put_if_present("reclaim_ratio", Keyword.get(opts, :reclaim_ratio))
-  end
-
-  def search_payload(opts) do
-    %{"type" => Keyword.fetch!(opts, :type)}
-    |> put_if_present("state", Keyword.get(opts, :state))
-    |> put_if_present("partition_key", Keyword.get(opts, :partition_key))
-    |> put_if_present("count", Keyword.get(opts, :count))
-    |> put_if_present("from_ms", Keyword.get(opts, :from_ms))
-    |> put_if_present("to_ms", Keyword.get(opts, :to_ms))
-    |> put_if_present("rev", Keyword.get(opts, :rev))
-    |> put_if_present("terminal_only", Keyword.get(opts, :terminal_only))
-    |> put_if_present("consistent_projection", Keyword.get(opts, :consistent_projection))
-    |> put_if_present("attributes", stringify_map(Keyword.get(opts, :attributes)))
-    |> put_if_present("state_meta", Policy.normalize_search_state_meta(opts))
   end
 
   defp put_claim_state(map, opts) do

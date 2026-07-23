@@ -1,10 +1,10 @@
 defmodule FerricStore.Protocol.BoundedValueEncoder do
   @moduledoc false
 
-  import FerricStore.Protocol.ValueDomain, only: [is_signed_64_integer: 1]
+  import FerricStore.Protocol.ValueDomain,
+    only: [is_signed_64_integer: 1, is_unsigned_64_integer: 1]
 
-  alias FerricStore.Protocol.MapKey
-  alias FerricStore.RequestLimits
+  alias FerricStore.{Protocol.MapKey, RequestLimits}
 
   @max_collection_items RequestLimits.max_batch_items()
   @max_value_depth 64
@@ -31,9 +31,12 @@ defmodule FerricStore.Protocol.BoundedValueEncoder do
   defp do_encode(value, _depth, remaining) when is_signed_64_integer(value),
     do: bounded_scalar(<<3, value::signed-64>>, remaining)
 
+  defp do_encode(value, _depth, remaining) when is_unsigned_64_integer(value),
+    do: bounded_scalar(<<8, value::unsigned-64>>, remaining)
+
   defp do_encode(value, _depth, _remaining) when is_integer(value) do
     raise ArgumentError,
-          "integer #{value} is outside the signed 64-bit native protocol domain"
+          "integer #{value} is outside the signed or unsigned 64-bit native protocol domain"
   end
 
   defp do_encode(value, _depth, remaining) when is_binary(value) do

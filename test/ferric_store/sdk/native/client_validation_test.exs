@@ -363,9 +363,9 @@ defmodule FerricStore.SDK.Native.ClientValidationTest do
     {_server, client} = start_sdk()
 
     assert {:error, {:encode_failed, integer_message}} =
-             SDK.request(client, :ping, %{"message" => 9_223_372_036_854_775_808})
+             SDK.request(client, :ping, %{"message" => 18_446_744_073_709_551_616})
 
-    assert integer_message =~ "signed 64-bit"
+    assert integer_message =~ "signed or unsigned 64-bit"
 
     assert {:error, {:encode_failed, type_message}} =
              SDK.request(client, :ping, %{"message" => self()})

@@ -1,7 +1,8 @@
 defmodule FerricStore.Protocol.ValueEncoder do
   @moduledoc false
 
-  import FerricStore.Protocol.ValueDomain, only: [is_signed_64_integer: 1]
+  import FerricStore.Protocol.ValueDomain,
+    only: [is_signed_64_integer: 1, is_unsigned_64_integer: 1]
 
   alias FerricStore.Protocol.MapKey
   alias FerricStore.RequestLimits
@@ -19,9 +20,12 @@ defmodule FerricStore.Protocol.ValueEncoder do
   defp do_encode(value, _depth) when is_signed_64_integer(value),
     do: <<3, value::signed-64>>
 
+  defp do_encode(value, _depth) when is_unsigned_64_integer(value),
+    do: <<8, value::unsigned-64>>
+
   defp do_encode(value, _depth) when is_integer(value) do
     raise ArgumentError,
-          "integer #{value} is outside the signed 64-bit native protocol domain"
+          "integer #{value} is outside the signed or unsigned 64-bit native protocol domain"
   end
 
   defp do_encode(value, _depth) when is_binary(value),

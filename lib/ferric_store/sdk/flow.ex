@@ -7,7 +7,7 @@ defmodule FerricStore.SDK.Flow do
   aggregate commands use the control connection.
   """
 
-  alias FerricStore.Flow.{PolicyCommand, PolicyResponse}
+  alias FerricStore.Flow.{PolicyCommand, PolicyResponse, QueryRequest}
   alias FerricStore.FlowRouting
   alias FerricStore.Protocol.Opcodes
   alias FerricStore.RequestContext
@@ -28,7 +28,6 @@ defmodule FerricStore.SDK.Flow do
     value_put: :flow_value_put,
     value_mget: :flow_value_mget,
     signal: :flow_signal,
-    list: :flow_list,
     create_many: :flow_create_many,
     complete_many: :flow_complete_many,
     transition_many: :flow_transition_many,
@@ -37,13 +36,7 @@ defmodule FerricStore.SDK.Flow do
     cancel_many: :flow_cancel_many,
     reclaim: :flow_reclaim,
     rewind: :flow_rewind,
-    terminals: :flow_terminals,
-    failures: :flow_failures,
-    by_parent: :flow_by_parent,
-    by_root: :flow_by_root,
-    by_correlation: :flow_by_correlation,
     info: :flow_info,
-    stuck: :flow_stuck,
     policy_set: :flow_policy_set,
     policy_get: :flow_policy_get,
     spawn_children: :flow_spawn_children,
@@ -62,7 +55,7 @@ defmodule FerricStore.SDK.Flow do
     stats: :flow_stats,
     attributes: :flow_attributes,
     attribute_values: :flow_attribute_values,
-    search: :flow_search,
+    query: :flow_query,
     effect_reserve: :flow_effect_reserve,
     effect_confirm: :flow_effect_confirm,
     effect_fail: :flow_effect_fail,
@@ -94,11 +87,27 @@ defmodule FerricStore.SDK.Flow do
            end)
 
   for {function, opcode_name} <- @flow_commands,
-      function not in [:policy_set, :policy_get] do
+      function not in [:policy_set, :policy_get, :query] do
     def unquote(function)(client, payload \\ %{}, opts \\ []) do
       request(client, unquote(opcode_name), payload, opts)
     end
   end
+
+  @spec query(pid(), binary(), map(), keyword()) :: {:ok, term()} | {:error, term()}
+  def query(client, query, params \\ %{}, opts \\ []),
+    do: QueryRequest.query(client, query, params, opts)
+
+  @spec explain(pid(), binary(), map(), keyword()) :: {:ok, term()} | {:error, term()}
+  def explain(client, query, params \\ %{}, opts \\ []),
+    do: QueryRequest.explain(client, query, params, opts)
+
+  @spec explain_analyze(pid(), binary(), map(), keyword()) :: {:ok, term()} | {:error, term()}
+  def explain_analyze(client, query, params \\ %{}, opts \\ []),
+    do: QueryRequest.explain_analyze(client, query, params, opts)
+
+  @spec query_indexes(pid(), binary() | nil, keyword()) :: {:ok, term()} | {:error, term()}
+  def query_indexes(client, index_id \\ nil, opts \\ []),
+    do: QueryRequest.indexes(client, index_id, opts)
 
   @doc """
   Deep-patches a Flow policy and returns `{:ok, PolicySnapshot.t()}`.

@@ -4,49 +4,16 @@ defmodule FerricStore.Flow.Options.NumericValueValidator do
   import FerricStore.Protocol.ValueDomain, only: [is_signed_64_integer: 1]
 
   alias FerricStore.Flow.MaxActive
+  alias FerricStore.Flow.Options.NumericRules
 
   @max_exact 9_007_199_254_740_991
   @max_history_hot_events 10_000
   @max_history_events 1_000_000
 
-  @nonnegative_exact %{
-    from_ms: [:history, :list, :search],
-    from_version: [:history],
-    max_bytes: [:value_mget],
-    now_ms: [
-      :cancel,
-      :claim_due,
-      :complete,
-      :complete_many,
-      :create,
-      :create_many,
-      :fail,
-      :retry,
-      :signal,
-      :transition,
-      :value_put
-    ],
-    payload_max_bytes: [:claim_due, :get, :history, :value_mget],
-    run_at_ms: [:create, :create_many, :retry, :signal, :transition],
-    to_ms: [:history, :list, :search],
-    to_version: [:history],
-    value_max_bytes: [:claim_due, :value_mget]
-  }
-  @positive_exact %{
-    count: [:history, :list, :search],
-    lease_ms: [:claim_due],
-    limit: [:claim_due],
-    ttl_ms: [:cancel, :complete, :complete_many, :fail, :value_put]
-  }
-  @positive_signed %{retention_ttl_ms: [:create, :create_many]}
-  @special %{
-    block_ms: {[:claim_due], :unsigned_32},
-    history_hot_max_events: {[:create], :history_hot},
-    history_max_events: {[:create], :history},
-    max_active_ms: {[:create, :create_many], :max_active},
-    priority: {[:claim_due, :create, :create_many, :transition], :priority},
-    reclaim_ratio: {[:claim_due], :percentage}
-  }
+  @nonnegative_exact NumericRules.nonnegative_exact()
+  @positive_exact NumericRules.positive_exact()
+  @positive_signed NumericRules.positive_signed()
+  @special NumericRules.special()
 
   @spec validate(atom(), keyword()) :: :ok | {:error, term()}
   def validate(operation, opts) do

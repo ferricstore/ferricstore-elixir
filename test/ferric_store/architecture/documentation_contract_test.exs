@@ -12,16 +12,16 @@ defmodule FerricStore.Architecture.DocumentationContractTest do
     end
   end
 
-  test "the release declares the FerricStore 0.9 beta contract without changing wire v1" do
-    assert Mix.Project.config()[:version] == "0.4.2"
-    assert FerricStore.minimum_server_version() == "0.9.1"
-    assert FerricStore.SDK.minimum_server_version() == "0.9.1"
-    assert FerricStore.server_version_requirement() == "~> 0.9.1"
-    assert FerricStore.SDK.server_version_requirement() == "~> 0.9.1"
+  test "the release declares the FerricStore 0.10 beta contract without changing wire v1" do
+    assert Mix.Project.config()[:version] == "0.5.0"
+    assert FerricStore.minimum_server_version() == "0.10.0"
+    assert FerricStore.SDK.minimum_server_version() == "0.10.0"
+    assert FerricStore.server_version_requirement() == "~> 0.10.0"
+    assert FerricStore.SDK.server_version_requirement() == "~> 0.10.0"
     assert FerricStore.Compatibility.protocol_version() == 1
 
     for path <- ["README.md", "docs/quickstart.md"] do
-      assert path |> then(&File.read!(Path.join(@root, &1))) =~ "FerricStore `~> 0.9.1`"
+      assert path |> then(&File.read!(Path.join(@root, &1))) =~ "FerricStore `~> 0.10.0`"
     end
   end
 
