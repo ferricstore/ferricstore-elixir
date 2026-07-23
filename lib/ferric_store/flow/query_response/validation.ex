@@ -1,6 +1,7 @@
 defmodule FerricStore.Flow.QueryResponse.Validation do
   @moduledoc false
 
+  alias FerricStore.Flow.QueryResponse.PageValidation
   alias FerricStore.Types
 
   @maximum_signed_64 9_223_372_036_854_775_807
@@ -160,18 +161,7 @@ defmodule FerricStore.Flow.QueryResponse.Validation do
 
   def quality(value), do: invalid(:quality, value)
 
-  def page(value) when is_map(value) do
-    has_more = Types.get(value, "has_more")
-    cursor = Types.get(value, "cursor")
-
-    with :ok <- validate_page_has_more(has_more),
-         :ok <- validate_page_cursor(cursor),
-         :ok <- validate_page_consistency(has_more, cursor, value) do
-      {:ok, %{has_more: has_more, cursor: cursor}}
-    end
-  end
-
-  def page(value), do: invalid(:page, value)
+  defdelegate page(value), to: PageValidation, as: :validate
 
   def has_key?(map, key), do: Map.has_key?(map, key) or existing_atom_key?(map, key)
 
@@ -185,29 +175,6 @@ defmodule FerricStore.Flow.QueryResponse.Validation do
     do: invalid({shape, :result_records}, {actual, expected})
 
   def invalid(field, value), do: {:error, {:invalid_flow_query_response, field, value}}
-
-  defp validate_page_has_more(value) when is_boolean(value), do: :ok
-  defp validate_page_has_more(value), do: invalid(:page_has_more, value)
-
-  defp validate_page_cursor(nil), do: :ok
-
-  defp validate_page_cursor(value) when is_binary(value) do
-    if byte_size(value) <= 4_096 and String.valid?(value) and
-         String.starts_with?(value, "fqc1_") do
-      :ok
-    else
-      invalid(:page_cursor, value)
-    end
-  end
-
-  defp validate_page_cursor(value), do: invalid(:page_cursor, value)
-
-  defp validate_page_consistency(has_more, cursor, _value)
-       when has_more == is_binary(cursor),
-       do: :ok
-
-  defp validate_page_consistency(_has_more, _cursor, value),
-    do: invalid(:page_consistency, value)
 
   defp existing_atom_key?(map, key) do
     Map.has_key?(map, String.to_existing_atom(key))

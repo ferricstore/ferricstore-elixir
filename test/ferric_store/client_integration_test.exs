@@ -725,50 +725,57 @@ defmodule FerricStore.ClientIntegrationTest do
                "~#{prefix}*",
                "-@all",
                "+PING",
+               "+SHARDS",
+               "+SUBSCRIBE_EVENTS",
                "+FLOW.QUERY",
                "+FLOW.QUERY.EXPLAIN"
              ])
 
-    on_exit(fn -> SDK.acl_del_user(admin, username) end)
-
-    assert_okish(
-      FerricStore.Flow.create(admin, "#{prefix}:flow",
-        type: type,
-        state: "ready",
-        partition_key: partition,
-        now_ms: System.system_time(:millisecond)
-      )
-    )
-
-    limited =
-      FerricStore.connect!(
-        url: @docker_url,
-        username: username,
-        password: password,
-        client_name: "ferricstore-elixir-query-acl"
+    try do
+      assert_okish(
+        FerricStore.Flow.create(admin, "#{prefix}:flow",
+          type: type,
+          state: "ready",
+          partition_key: partition,
+          now_ms: System.system_time(:millisecond)
+        )
       )
 
-    on_exit(fn -> FerricStore.close(limited) end)
+      limited =
+        FerricStore.connect!(
+          url: @docker_url,
+          username: username,
+          password: password,
+          client_name: "ferricstore-elixir-query-acl"
+        )
 
-    query =
-      "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state ORDER BY updated_at_ms ASC LIMIT 10 RETURN RECORDS"
+      try do
+        query =
+          "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state ORDER BY updated_at_ms ASC LIMIT 10 RETURN RECORDS"
 
-    params = %{"partition" => partition, "type" => type, "state" => "ready"}
+        params = %{"partition" => partition, "type" => type, "state" => "ready"}
 
-    assert_eventually(fn ->
-      assert %QueryResult{records: [_record]} = FerricStore.Flow.query(limited, query, params)
-    end)
+        assert_eventually(fn ->
+          assert %QueryResult{records: [_record]} =
+                   FerricStore.Flow.query(limited, query, params)
+        end)
 
-    assert %QueryExplainResult{status: "planned"} =
-             FerricStore.Flow.explain(limited, query, params)
+        assert %QueryExplainResult{status: "planned"} =
+                 FerricStore.Flow.explain(limited, query, params)
 
-    denied_params = Map.put(params, "partition", "elixir-sdk:security-denied:#{suffix}")
-    assert {:error, denied_query} = FerricStore.Flow.query(limited, query, denied_params)
-    assert_error_message(denied_query, "NOPERM")
-    assert {:error, denied_explain} = FerricStore.Flow.explain(limited, query, denied_params)
-    assert_error_message(denied_explain, "NOPERM")
-    assert {:error, denied_catalog} = FerricStore.Flow.query_indexes(limited)
-    assert_error_message(denied_catalog, "NOPERM")
+        denied_params = Map.put(params, "partition", "elixir-sdk:security-denied:#{suffix}")
+        assert {:error, denied_query} = FerricStore.Flow.query(limited, query, denied_params)
+        assert_error_message(denied_query, "NOPERM")
+        assert {:error, denied_explain} = FerricStore.Flow.explain(limited, query, denied_params)
+        assert_error_message(denied_explain, "NOPERM")
+        assert {:error, denied_catalog} = FerricStore.Flow.query_indexes(limited)
+        assert_error_message(denied_catalog, "NOPERM")
+      after
+        FerricStore.close(limited)
+      end
+    after
+      assert {:ok, _deleted} = SDK.acl_del_user(admin, username)
+    end
   end
 
   test "flow policy patch, replacement, and generation CAS use the 0.9.1 contract", %{

@@ -11,7 +11,7 @@
   the superseded collection opcodes from the native command surface.
 - Cover pagination, count, explain/analyze, index status, eventual projection,
   and scoped query ACL behavior in unit and live integration tests.
-- Pin live integration to the immutable FerricStore 0.10.1 release and exact
+- Pin live integration to the immutable FerricStore 0.10.2 release and exact
   OSS core commit while retaining `~> 0.10.0` compatibility.
 - Reject incompatible index-status contracts during HELLO, validate FQL text
   identifiers and explain fingerprints, and preserve Flow metadata

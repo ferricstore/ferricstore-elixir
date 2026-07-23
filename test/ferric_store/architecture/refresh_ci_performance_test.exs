@@ -153,7 +153,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
 
   test "CI and release validate against the immutable released server contract" do
     release_image =
-      "ghcr.io/ferricstore/ferricstore:0.10.1@sha256:198cffba8e2df2f5f66db9e6bbef83131f4841d4b90c65ee8091ac463ec6715d"
+      "ghcr.io/ferricstore/ferricstore:0.10.2@sha256:e6116d6f6c2c701e7c12076ed55233f4305e5fd6ff627cc3ed4ab7f828940cf3"
 
     refute File.exists?(Path.expand("../../../scripts/server_build_compat.patch", __DIR__))
 
@@ -180,6 +180,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     build_script =
       File.read!(Path.expand("../../../scripts/build_integration_server.sh", __DIR__))
 
+    assert build_script =~ "13c32657042558e2b88a9a8ae3c713d92b6b71cd"
     assert build_script =~ "git -C \"$SERVER_SOURCE\" rev-parse HEAD"
     refute build_script =~ "git apply"
     refute build_script =~ "SERVER_PATCH"

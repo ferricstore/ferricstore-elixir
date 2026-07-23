@@ -44,7 +44,7 @@ mix test
 
 ### 2. Start FerricStore
 
-For local development, run the same immutable FerricStore 0.10.1 image used by
+For local development, run the same immutable FerricStore 0.10.2 image used by
 the SDK integration workflow:
 
 ```bash
@@ -53,7 +53,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.10.1@sha256:198cffba8e2df2f5f66db9e6bbef83131f4841d4b90c65ee8091ac463ec6715d
+  ghcr.io/ferricstore/ferricstore:0.10.2@sha256:e6116d6f6c2c701e7c12076ed55233f4305e5fd6ff627cc3ed4ab7f828940cf3
 ```
 
 The SDK examples assume:

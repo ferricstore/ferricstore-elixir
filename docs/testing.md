@@ -17,7 +17,7 @@ compatible FerricStore revision pinned by the SDK.
 scripts/test_integration.sh
 ```
 
-The script runs the immutable FerricStore 0.10.1 release image, waits for native
+The script runs the immutable FerricStore 0.10.2 release image, waits for native
 startup, runs `mix test --only integration`, and removes the container. Set
 `FERRICSTORE_TEST_IMAGE` to test another compatible image instead.
 
