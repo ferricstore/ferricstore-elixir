@@ -37,7 +37,7 @@ defmodule FerricStore.SDK.Native.SessionBootstrap do
       "client_name" => client_name,
       "driver_name" => client_name,
       "compression" => "none",
-      "compact_flow_responses" => true,
+      "compact_flow_responses" => false,
       "compact_response_codecs" => ["flow_query_result_v1"]
     }
 

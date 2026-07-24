@@ -8,6 +8,8 @@
   run/event selectors and validate the decoder against the shared server corpus.
 - Ignore well-formed unknown future response codecs while retaining global
   opcode uniqueness and strict validation for supported codecs.
+- Negotiate the named FQL1 result codec without enabling the broader compact
+  Flow response surface.
 
 ## 0.5.0
 

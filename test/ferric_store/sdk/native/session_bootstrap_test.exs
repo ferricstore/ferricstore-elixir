@@ -57,7 +57,7 @@ defmodule FerricStore.SDK.Native.SessionBootstrapTest do
 
     assert_receive {:bootstrap_request, _opcode,
                     %{
-                      "compact_flow_responses" => true,
+                      "compact_flow_responses" => false,
                       "compact_response_codecs" => ["flow_query_result_v1"]
                     }}
   end
