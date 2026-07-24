@@ -5,7 +5,7 @@
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.5.0"}
+    {:ferricstore_sdk, "~> 0.5.1"}
   ]
 end
 ```
@@ -16,7 +16,7 @@ mix deps.get
 
 ## Start FerricStore
 
-This SDK requires FerricStore `~> 0.10.0`. The beta API contract changed at 0.10,
+This SDK requires FerricStore `~> 0.10.3`. The beta API contract changed at 0.10,
 while native framing remains protocol v1.
 
 From an SDK checkout, run the immutable server image validated by this release:
@@ -27,7 +27,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.10.2@sha256:e6116d6f6c2c701e7c12076ed55233f4305e5fd6ff627cc3ed4ab7f828940cf3
+  ghcr.io/ferricstore/ferricstore:0.10.3@sha256:f78a6f716cef8a1ef0a36ff620e653f9615bf9ba45abe9d86c990234fb9850d3
 ```
 
 ## Connect

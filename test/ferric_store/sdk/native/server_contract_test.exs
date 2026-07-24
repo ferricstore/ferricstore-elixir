@@ -2,7 +2,7 @@ defmodule FerricStore.SDK.Native.ServerContractTest do
   use ExUnit.Case, async: true
 
   alias FerricStore.Protocol.{CapabilityContract, CommandSpec}
-  alias FerricStore.SDK.Native.ServerContract
+  alias FerricStore.SDK.Native.{ServerContract, ServerResponseCodecs}
   alias FerricStore.Test.NativeServer
 
   test "accepts the exact current server contract" do
@@ -23,11 +23,30 @@ defmodule FerricStore.SDK.Native.ServerContractTest do
     end
   end
 
-  test "rejects malformed, unsupported, and multiply-owned compact response codecs" do
+  test "accepts bounded future compact codecs without installing a decoder" do
+    startup =
+      NativeServer.startup_payload(%{
+        "capabilities" => %{
+          "response_codecs" => %{
+            "compact_response_opcodes" => %{
+              "flow_query_result_v1" => [0x0231],
+              "future_codec_v1" => [0x7FFE]
+            }
+          }
+        }
+      })
+
+    assert :ok = ServerContract.validate(startup)
+
+    assert {:ok, %{0x0231 => "flow_query_result_v1"}} =
+             ServerResponseCodecs.parse(startup["capabilities"])
+  end
+
+  test "rejects malformed and multiply-owned compact response codecs" do
     invalid_tables = [
       %{"kv_get_v1" => [0x0101, 0x0101]},
-      %{"future_codec_v1" => [0x0101]},
-      %{"kv_get_v1" => [0x0101], "kv_mget_v1" => [0x0101]}
+      %{"kv_get_v1" => [0x0101], "kv_mget_v1" => [0x0101]},
+      %{"kv_get_v1" => [0x0101], "future_codec_v1" => [0x0101]}
     ]
 
     Enum.each(invalid_tables, fn table ->

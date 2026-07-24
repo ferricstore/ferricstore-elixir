@@ -6,6 +6,7 @@ defmodule FerricStore.ClientIntegrationTest do
     QueryError,
     QueryExplainResult,
     QueryIndexStatus,
+    QueryProjection,
     QueryResult,
     StalePolicyGenerationError
   }
@@ -557,13 +558,14 @@ defmodule FerricStore.ClientIntegrationTest do
           type: type,
           state: state,
           partition_key: partition,
+          attributes: %{"customer" => "customer-#{index}", "hidden" => "hidden"},
           now_ms: now + index
         )
       )
     end)
 
     query =
-      "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state ORDER BY updated_at_ms ASC LIMIT 2 RETURN RECORDS"
+      "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state ORDER BY updated_at_ms DESC LIMIT 2 RETURN RECORDS"
 
     params = %{"partition" => partition, "type" => type, "state" => state}
 
@@ -578,12 +580,36 @@ defmodule FerricStore.ClientIntegrationTest do
              FerricStore.Flow.query(client, query, params)
 
     next_query =
-      "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state ORDER BY updated_at_ms ASC LIMIT 2 CURSOR @cursor RETURN RECORDS"
+      "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state ORDER BY updated_at_ms DESC LIMIT 2 CURSOR @cursor RETURN RECORDS"
 
     assert %QueryResult{records: second_records, page: %{has_more: false, cursor: nil}} =
              FerricStore.Flow.query(client, next_query, Map.put(params, "cursor", cursor))
 
     assert MapSet.new(Enum.map(first_records ++ second_records, & &1["id"])) == MapSet.new(ids)
+
+    assert {:ok, projected_query} =
+             QueryProjection.project(
+               "FROM runs WHERE partition_key = @partition AND run_id = @run",
+               :record,
+               [:run_id, :state, {:attribute, "customer"}]
+             )
+
+    assert %QueryResult{
+             records: [
+               %{
+                 "id" => projected_id,
+                 "state" => ^state,
+                 "attributes" => %{"customer" => "customer-0"}
+               } = projected_record
+             ]
+           } =
+             FerricStore.Flow.query(client, projected_query, %{
+               "partition" => partition,
+               "run" => hd(ids)
+             })
+
+    assert projected_id == hd(ids)
+    assert map_size(projected_record) == 3
 
     count_query =
       "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state RETURN COUNT"
@@ -591,7 +617,7 @@ defmodule FerricStore.ClientIntegrationTest do
     assert %QueryResult{count: 3, records: nil, page: nil} =
              FerricStore.Flow.query(client, count_query, params)
 
-    assert %QueryExplainResult{status: "planned", actual: nil} =
+    assert %QueryExplainResult{status: "planned", actual: nil, plan: %{"order" => "native"}} =
              FerricStore.Flow.explain(client, query, params)
 
     assert %QueryExplainResult{status: "executed", actual: %{result_records: 2}} =

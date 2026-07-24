@@ -104,7 +104,12 @@ defmodule FerricStore.QueueBenchmark do
   end
 
   defp connect!(url, name, timeout) do
-    FerricStore.connect!(url: url, client_name: name, timeout: timeout)
+    FerricStore.connect!(
+      url: url,
+      client_name: name,
+      connect_timeout: timeout,
+      topology_refresh_timeout: timeout
+    )
   end
 
   defp create_flows(
@@ -408,7 +413,8 @@ defmodule FerricStore.QueueBenchmark do
             lease_ms: 30_000,
             limit: min(min(batch * claim_drain_batches, 1_000), target - :atomics.get(counters, 1)),
             include_attributes: false,
-            partition_keys: claim_partition_keys
+            partition_keys: claim_partition_keys,
+            timeout: timeout
           )
 
         case jobs do
@@ -446,7 +452,8 @@ defmodule FerricStore.QueueBenchmark do
                 complete_cursor,
                 jobs,
                 pending,
-                counters
+                counters,
+                timeout
               )
 
             drain_worker(
@@ -471,20 +478,23 @@ defmodule FerricStore.QueueBenchmark do
     end
   end
 
-  defp submit_or_complete_sync(client, 1, cursor, jobs, pending, counters) do
-    FerricStore.Flow.complete_many(client, jobs, return_ok_on_success: true)
+  defp submit_or_complete_sync(client, 1, cursor, jobs, pending, counters, timeout) do
+    FerricStore.Flow.complete_many(client, jobs,
+      return_ok_on_success: true,
+      timeout: timeout
+    )
     |> assert_many_ok!("complete", length(jobs))
 
     :atomics.add(counters, 2, length(jobs))
     {pending, cursor}
   end
 
-  defp submit_or_complete_sync(client, _depth, cursor, jobs, pending, _counters) do
-    {task, cursor} = submit_completion(client, cursor, jobs)
+  defp submit_or_complete_sync(client, _depth, cursor, jobs, pending, _counters, timeout) do
+    {task, cursor} = submit_completion(client, cursor, jobs, timeout)
     {[task | pending], cursor}
   end
 
-  defp submit_completion(client, cursor, jobs) do
+  defp submit_completion(client, cursor, jobs, timeout) do
     payload =
       FerricStore.Flow.complete_many_payload(jobs, return_ok_on_success: true)
       |> compact_or_typed(&FerricStore.Protocol.compact_flow_complete_many_payload/1)
@@ -493,10 +503,11 @@ defmodule FerricStore.QueueBenchmark do
       FerricStore.async_native(
         client,
         FerricStore.Protocol.opcode(:flow_complete_many),
-        payload
+        payload,
+        timeout: timeout
       )
 
-    {{ref, :complete_many, length(jobs), 30_000}, cursor + 1}
+    {{ref, :complete_many, length(jobs), timeout}, cursor + 1}
   end
 
   defp reap_create_tasks(requests) do

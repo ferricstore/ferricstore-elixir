@@ -7,12 +7,14 @@ defmodule FerricStore.SDK.Native.ServerResponseCodecs do
     flow_claim_jobs_v1
     flow_record_list_v1
     flow_record_v1
+    flow_query_result_v1
     kv_get_v1
     kv_mget_v1
     ok_list_v1
     pipeline_v1
   ))
   @max_codecs 32
+  @max_codec_name_bytes 128
   @max_opcodes 1_024
 
   @spec parse(term()) :: {:ok, %{non_neg_integer() => binary()}} | {:error, term()}
@@ -22,8 +24,11 @@ defmodule FerricStore.SDK.Native.ServerResponseCodecs do
          table when is_map(table) <-
            Types.get(response_codecs, "compact_response_opcodes"),
          :ok <- bounded_map(table),
-         {:ok, indexed, _count} <- index_table(table, %{}, 0) do
-      {:ok, indexed}
+         {:ok, advertised, _count} <- index_table(table, %{}, 0) do
+      supported =
+        Map.filter(advertised, fn {_opcode, codec} -> MapSet.member?(@supported, codec) end)
+
+      {:ok, supported}
     else
       nil -> {:error, :missing}
       {:error, _reason} = error -> error
@@ -47,16 +52,9 @@ defmodule FerricStore.SDK.Native.ServerResponseCodecs do
 
   defp index_codec(codec, opcodes, indexed, count)
        when is_binary(codec) and is_list(opcodes) do
-    cond do
-      not String.valid?(codec) ->
-        {:error, :invalid_codec_name}
-
-      not MapSet.member?(@supported, codec) ->
-        {:error, {:unsupported_codec, codec}}
-
-      true ->
-        index_opcodes(opcodes, codec, indexed, count)
-    end
+    if codec == "" or byte_size(codec) > @max_codec_name_bytes or not String.valid?(codec),
+      do: {:error, :invalid_codec_name},
+      else: index_opcodes(opcodes, codec, indexed, count)
   end
 
   defp index_codec(codec, _opcodes, _indexed, _count) when not is_binary(codec),

@@ -56,7 +56,7 @@ defmodule FerricStore.Flow.QueryBuilderCollections do
 
     with :ok <- require_concrete_type(type, :stuck),
          :ok <- validate_stuck_time(now_ms, older_than_ms),
-         {:ok, builder} <- QueryBuilderCore.base(opts, "lease_deadline_ms"),
+         {:ok, builder} <- QueryBuilderCore.base(opts, "lease_deadline_ms", false),
          {:ok, builder} <- QueryBuilderCore.add_type(builder, type),
          {:ok, builder} <- QueryBuilderCore.equality(builder, "state", "state", "running"),
          {:ok, builder} <-

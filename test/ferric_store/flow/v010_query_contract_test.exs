@@ -92,6 +92,26 @@ defmodule FerricStore.Flow.V010QueryContractTest do
 
     assert "runs_by_partition_predicates_ordered_records" in missing_shapes
 
+    missing_projection =
+      NativeServer.startup_payload(%{
+        "capabilities" => %{
+          "flow_query" => %{
+            "capabilities" => [
+              "flow_query_v1",
+              "flow_explain_v1",
+              "flow_explain_analyze_v1",
+              "flow_composite_index_v1",
+              "flow_query_index_status_v1"
+            ]
+          }
+        }
+      })
+
+    assert {:error,
+            {:incompatible_server_contract,
+             %{flow_query: "capabilities", missing: ["flow_query_result_projection_v1"]}}} =
+             ServerContract.validate(missing_projection)
+
     incompatible_index_status =
       NativeServer.startup_payload(%{
         "capabilities" => %{
@@ -124,6 +144,31 @@ defmodule FerricStore.Flow.V010QueryContractTest do
                        "query" => @query,
                        "params" => %{"type" => "invoice", "tenant" => "tenant-a"}
                      }}
+  end
+
+  test "query preserves sparse records returned by a field projection" do
+    response = %{
+      query_response()
+      | "records" => [
+          %{"id" => "one", "state" => "queued", "attributes" => %{"customer" => "acme"}}
+        ],
+        "page" => %{"has_more" => false, "cursor" => nil},
+        "usage" => usage(1)
+    }
+
+    {:ok, client} = CaptureClient.start_link(self(), [{:ok, response}])
+
+    query =
+      "FROM runs WHERE run_id = @run RETURN RECORD " <>
+        "(run_id, state, attribute['customer'])"
+
+    assert %QueryResult{records: [record]} = Flow.query(client, query, %{"run" => "one"})
+
+    assert record == %{
+             "id" => "one",
+             "state" => "queued",
+             "attributes" => %{"customer" => "acme"}
+           }
   end
 
   test "query validates its bounded input before transport" do
@@ -352,7 +397,57 @@ defmodule FerricStore.Flow.V010QueryContractTest do
     assert Enum.at(queries, 2) =~ "parent_flow_id = @lineage_id"
     assert Enum.at(queries, 3) =~ "root_flow_id = @lineage_id"
     assert Enum.at(queries, 4) =~ "correlation_id = @lineage_id"
+
+    for query <- Enum.take(queries, 5) do
+      assert query =~ "ORDER BY updated_at_ms DESC"
+    end
+
     assert Enum.at(queries, 5) =~ "ORDER BY lease_deadline_ms ASC LIMIT 2 RETURN RECORDS"
+  end
+
+  test "collection builders default to index-native updated-time order" do
+    assert {:ok, default_query, _params} =
+             QueryBuilder.list(
+               type: "invoice",
+               state: "queued",
+               partition_key: "tenant-a",
+               count: 25
+             )
+
+    assert default_query =~ "ORDER BY updated_at_ms DESC LIMIT 25 RETURN RECORDS"
+
+    assert {:ok, nil_reverse_query, _params} =
+             QueryBuilder.list(
+               type: "invoice",
+               state: "queued",
+               partition_key: "tenant-a",
+               count: 25,
+               rev: nil
+             )
+
+    assert nil_reverse_query =~ "ORDER BY updated_at_ms DESC LIMIT 25 RETURN RECORDS"
+
+    assert {:ok, ascending_query, _params} =
+             QueryBuilder.list(
+               type: "invoice",
+               state: "queued",
+               partition_key: "tenant-a",
+               count: 25,
+               rev: false
+             )
+
+    assert ascending_query =~ "ORDER BY updated_at_ms ASC LIMIT 25 RETURN RECORDS"
+
+    assert {:ok, stuck_query, _params} =
+             QueryBuilder.stuck(
+               type: "invoice",
+               partition_key: "tenant-a",
+               count: 25,
+               now_ms: 1_000,
+               older_than_ms: 100
+             )
+
+    assert stuck_query =~ "ORDER BY lease_deadline_ms ASC LIMIT 25 RETURN RECORDS"
   end
 
   test "convenience helpers reject unsupported planner shapes before transport" do

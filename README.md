@@ -2,7 +2,7 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public beta `0.5.0`. This release requires FerricStore `~> 0.10.0`.
+Status: public beta `0.5.1`. This release requires FerricStore `~> 0.10.3`.
 FerricStore 0.10 is a breaking beta API contract; native wire framing remains
 protocol v1. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
@@ -30,7 +30,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.5.0"}
+    {:ferricstore_sdk, "~> 0.5.1"}
   ]
 end
 ```
@@ -44,7 +44,7 @@ mix test
 
 ### 2. Start FerricStore
 
-For local development, run the same immutable FerricStore 0.10.2 image used by
+For local development, run the same immutable FerricStore 0.10.3 image used by
 the SDK integration workflow:
 
 ```bash
@@ -53,7 +53,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.10.2@sha256:e6116d6f6c2c701e7c12076ed55233f4305e5fd6ff627cc3ed4ab7f828940cf3
+  ghcr.io/ferricstore/ferricstore:0.10.3@sha256:f78a6f716cef8a1ef0a36ff620e653f9615bf9ba45abe9d86c990234fb9850d3
 ```
 
 The SDK examples assume:
@@ -80,7 +80,7 @@ and must be reused with the same query and parameters.
 query = """
 FROM runs
 WHERE partition_key = @partition AND type = @type AND state = @state
-ORDER BY updated_at_ms ASC
+ORDER BY updated_at_ms DESC
 LIMIT 25
 RETURN RECORDS
 """
@@ -91,6 +91,27 @@ params = %{"partition" => "partition-a", "type" => "invoice", "state" => "queued
 
 %FerricStore.Flow.QueryExplainResult{} = FerricStore.Flow.explain(client, query, params)
 %FerricStore.Flow.QueryIndexStatus{} = FerricStore.Flow.query_indexes(client)
+```
+
+Select a sparse result map by adding up to 32 source-specific fields after
+`RETURN RECORD` or `RETURN RECORDS`, for example
+`RETURN RECORDS (run_id, state, attribute['customer'])`. A bare return keeps the
+complete public record. Projection runs after authorization, authoritative
+recheck, ordering, and cursor calculation: it reduces retained result data,
+encoding, network, and client decoding work, but not index scans or hydration.
+
+Build the return clause with validated source-aware selectors instead of
+hand-quoting metadata names:
+
+```elixir
+{:ok, projected} =
+  FerricStore.Flow.QueryProjection.project(
+    "FROM runs WHERE partition_key = @partition AND run_id = @run",
+    :record,
+    [:run_id, :state, {:attribute, "customer"}]
+  )
+
+%FerricStore.Flow.QueryResult{} = FerricStore.Flow.query(client, projected, params)
 ```
 
 ### 5. Create a durable queue item

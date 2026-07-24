@@ -38,6 +38,7 @@ defmodule FerricStore.Test.NativeServer do
           "compact_response_opcodes" => %{
             "flow_claim_jobs_v1" => [0x0203],
             "flow_record_v1" => [0x0202],
+            "flow_query_result_v1" => [0x0100, 0x0231],
             "kv_get_v1" => [0x0101],
             "kv_mget_v1" => [0x0104, 0x020C],
             "ok_list_v1" => [0x0102, 0x0105, 0x020F, 0x0210, 0x0212, 0x0213, 0x0214],
@@ -51,6 +52,7 @@ defmodule FerricStore.Test.NativeServer do
           "index_status_contract" => "ferric.flow.query.indexes/v1",
           "capabilities" => [
             "flow_query_v1",
+            "flow_query_result_projection_v1",
             "flow_explain_v1",
             "flow_explain_analyze_v1",
             "flow_composite_index_v1",

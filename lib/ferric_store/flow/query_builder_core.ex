@@ -7,10 +7,15 @@ defmodule FerricStore.Flow.QueryBuilderCore do
   @max_partition_bytes 65_535
   @max_results 100
 
-  def base(opts, order_field \\ "updated_at_ms") do
+  def base(opts, order_field \\ "updated_at_ms", default_reverse \\ true) do
     partition = Keyword.get(opts, :partition_key)
     limit = Keyword.get(opts, :count, @max_results)
-    reverse = Keyword.get(opts, :rev, false)
+
+    reverse =
+      case Keyword.get(opts, :rev) do
+        nil -> default_reverse
+        value -> value
+      end
 
     with :ok <- valid_partition(partition),
          :ok <- valid_limit(limit),

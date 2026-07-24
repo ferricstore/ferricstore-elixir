@@ -43,6 +43,10 @@ FerricStore.Flow.list(client,
 )
 ```
 
+Collection helpers default to newest-first order so queries use FerricStore's
+native descending updated-time indexes. Pass `rev: false` only when the oldest
+matching records must be returned first.
+
 Do not put large payloads in attributes. Use value refs for large data.
 
 ## Named values and value refs

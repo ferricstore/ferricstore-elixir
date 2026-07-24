@@ -126,11 +126,25 @@ defmodule FerricStore.SDK.Native.Codec do
          payload,
          %{response_plan: response_plan, compact_codec: codec}
        )
-       when is_binary(codec),
-       do: Protocol.decode_compact_response_payload(opcode, payload, response_plan)
+       when is_binary(codec) do
+    with :ok <- validate_compact_codec_payload(codec, payload) do
+      Protocol.decode_compact_response_payload(opcode, payload, response_plan)
+    end
+  end
 
   defp decode_custom_response_payload(opcode, payload, response_context),
     do: Protocol.decode_compact_response_payload(opcode, payload, response_context)
+
+  defp validate_compact_codec_payload("flow_query_result_v1", <<0xA0, _rest::binary>>),
+    do: :ok
+
+  defp validate_compact_codec_payload("flow_query_result_v1", _payload),
+    do: {:error, :compact_response_codec_mismatch}
+
+  defp validate_compact_codec_payload(_codec, <<0xA0, _rest::binary>>),
+    do: {:error, :compact_response_codec_mismatch}
+
+  defp validate_compact_codec_payload(_codec, _payload), do: :ok
 
   defp decode_typed_payload(payload) do
     case decode_value(payload) do

@@ -2,14 +2,9 @@ defmodule FerricStore.Protocol.ResponseDecoder do
   @moduledoc false
   alias FerricStore.BinaryDetacher
 
-  alias FerricStore.Protocol.{
-    CommandSpec,
-    CompactClaimDecoder,
-    CompactMGetDecoder,
-    CompactPipelineDecoder,
-    CompactValueDecoder,
-    ValueCodec
-  }
+  alias FerricStore.Protocol.{CommandSpec, CompactClaimDecoder, CompactMGetDecoder}
+  alias FerricStore.Protocol.{CompactPipelineDecoder, CompactValueDecoder, FlowQueryResultDecoder}
+  alias FerricStore.Protocol.ValueCodec
 
   @status_ok 0
   @max_collection_items FerricStore.RequestLimits.max_batch_items()
@@ -18,6 +13,7 @@ defmodule FerricStore.Protocol.ResponseDecoder do
   @command_exec_opcode CommandSpec.fetch!(:command_exec).opcode
   @claim_opcode CommandSpec.fetch!(:flow_claim_due).opcode
   @pipeline_opcode CommandSpec.fetch!(:pipeline).opcode
+  @flow_query_opcode CommandSpec.fetch!(:flow_query).opcode
   @claim_modes [:base, :attrs, :state, :state_attrs]
   @scalar_ok_opcodes Enum.map([:set, :mset], &CommandSpec.fetch!(&1).opcode)
   @ok_count_opcodes Enum.map(
@@ -105,6 +101,10 @@ defmodule FerricStore.Protocol.ResponseDecoder do
   defp decode_response_value(opcode, @status_ok, <<0x80, rest::binary>>)
        when opcode in @compact_claim_opcodes,
        do: CompactClaimDecoder.decode(rest)
+
+  defp decode_response_value(opcode, @status_ok, <<0xA0, _rest::binary>> = payload)
+       when opcode in [@command_exec_opcode, @flow_query_opcode],
+       do: FlowQueryResultDecoder.decode(payload)
 
   defp decode_response_value(@pipeline_opcode, @status_ok, <<0x81, count::32>>)
        when count <= @max_collection_items,

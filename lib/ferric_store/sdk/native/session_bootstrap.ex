@@ -35,7 +35,10 @@ defmodule FerricStore.SDK.Native.SessionBootstrap do
   defp hello(conn, client_name, timeout) do
     payload = %{
       "client_name" => client_name,
-      "compression" => "none"
+      "driver_name" => client_name,
+      "compression" => "none",
+      "compact_flow_responses" => true,
+      "compact_response_codecs" => ["flow_query_result_v1"]
     }
 
     Connection.request(conn, Opcodes.hello(), payload, 0, timeout)

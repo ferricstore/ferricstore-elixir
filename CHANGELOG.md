@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 - 2026-07-24
+
+- Require FerricStore 0.10.3 for result projections and the negotiated compact
+  FQL1 result codec while retaining native wire protocol v1.
+- Add `FerricStore.Flow.QueryProjection` for bounded, source-aware sparse
+  run/event selectors and validate the decoder against the shared server corpus.
+- Ignore well-formed unknown future response codecs while retaining global
+  opcode uniqueness and strict validation for supported codecs.
+
 ## 0.5.0
 
 - Require FerricStore 0.10.0 and negotiate the complete OSS FQL1 query,
@@ -19,6 +28,8 @@
 - Keep `list`, `search`, `terminals`, `failures`, lineage, and `stuck`
   conveniences on the unified query opcode, and reject unbounded collection
   shapes before transport.
+- Default updated-time collection conveniences to newest-first order so they
+  use native descending indexes; pass `rev: false` for explicit ascending order.
 - Reject malformed UTF-8 query response text and quality labels over 64 bytes
   before returning server metadata.
 

@@ -9,6 +9,7 @@ defmodule FerricStore.SDK.Native.FlowQueryContract do
   @index_status_contract "ferric.flow.query.indexes/v1"
   @required_capabilities ~w(
     flow_query_v1
+    flow_query_result_projection_v1
     flow_explain_v1
     flow_explain_analyze_v1
     flow_composite_index_v1

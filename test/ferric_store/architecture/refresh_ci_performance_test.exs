@@ -153,7 +153,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
 
   test "CI and release validate against the immutable released server contract" do
     release_image =
-      "ghcr.io/ferricstore/ferricstore:0.10.2@sha256:e6116d6f6c2c701e7c12076ed55233f4305e5fd6ff627cc3ed4ab7f828940cf3"
+      "ghcr.io/ferricstore/ferricstore:0.10.3@sha256:f78a6f716cef8a1ef0a36ff620e653f9615bf9ba45abe9d86c990234fb9850d3"
 
     refute File.exists?(Path.expand("../../../scripts/server_build_compat.patch", __DIR__))
 
@@ -180,7 +180,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     build_script =
       File.read!(Path.expand("../../../scripts/build_integration_server.sh", __DIR__))
 
-    assert build_script =~ "13c32657042558e2b88a9a8ae3c713d92b6b71cd"
+    assert build_script =~ "8ddcdf3e8cdc7c0fcf6d243d1e8260a9abd6f7a9"
     assert build_script =~ "git -C \"$SERVER_SOURCE\" rev-parse HEAD"
     refute build_script =~ "git apply"
     refute build_script =~ "SERVER_PATCH"
@@ -263,5 +263,36 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     assert benchmark_docs =~ "--batch 1"
     assert benchmark_docs =~ "--min-throughput 100.0"
     assert testing_docs =~ "acknowledged response benchmark"
+  end
+
+  test "the workflow benchmark uses configured deadlines throughout" do
+    benchmark = File.read!(Path.expand("../../../bench/queue_benchmark.exs", __DIR__))
+
+    assert benchmark =~ "connect_timeout: timeout"
+    assert benchmark =~ "topology_refresh_timeout: timeout"
+
+    refute Regex.match?(
+             ~r/FerricStore\.connect!\([^)]*\btimeout:/s,
+             benchmark
+           )
+
+    assert Regex.match?(
+             ~r/Flow\.claim_due\(.*?timeout: timeout\s*\)\s*case jobs do/s,
+             benchmark
+           )
+
+    assert Regex.match?(
+             ~r/Flow\.complete_many\(.*?timeout: timeout\s*\)\s*\|>/s,
+             benchmark
+           )
+
+    assert benchmark =~ "submit_completion(client, cursor, jobs, timeout)"
+
+    assert Regex.match?(
+             ~r/FerricStore\.async_native\(.*?timeout: timeout\s*\)\s*\{\{ref/s,
+             benchmark
+           )
+
+    refute benchmark =~ "length(jobs), 30_000"
   end
 end
