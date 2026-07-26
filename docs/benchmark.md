@@ -31,7 +31,7 @@ groups; it does not use the removed shard-level atomicity mode.
 Environment:
 
 - Client: local macOS
-- Server: immutable FerricStore 0.11.1 multi-arch release image
+- Server: immutable FerricStore 0.11.2 multi-arch release image
 - Protocol: native `ferric://`
 - Server URL: `ferric://127.0.0.1:6398`
 - Protected mode disabled for local benchmark only
@@ -44,7 +44,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6398 \
   -p 6398:6388 \
-  ghcr.io/ferricstore/ferricstore:0.11.1@sha256:0439899e853741a098854b510f8db153b73a4afedc13da256ee5643c838bc8f2
+  ghcr.io/ferricstore/ferricstore:0.11.2@sha256:90758c3a2d191659928a728c5fb5e5f61d0ee910583e263f3bad543e5055bff8
 ```
 
 ## KV throughput
