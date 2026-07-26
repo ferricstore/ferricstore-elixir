@@ -152,8 +152,16 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
   end
 
   test "CI and release validate against the immutable released server contract" do
-    release_image =
-      "ghcr.io/ferricstore/ferricstore:0.10.3@sha256:f78a6f716cef8a1ef0a36ff620e653f9615bf9ba45abe9d86c990234fb9850d3"
+    integration_script =
+      File.read!(Path.expand("../../../scripts/test_integration.sh", __DIR__))
+
+    version = Regex.escape(FerricStore.minimum_server_version())
+
+    assert [release_image] =
+             Regex.run(
+               ~r|ghcr\.io/ferricstore/ferricstore:#{version}@sha256:[0-9a-f]{64}|,
+               integration_script
+             )
 
     refute File.exists?(Path.expand("../../../scripts/server_build_compat.patch", __DIR__))
 
@@ -169,18 +177,17 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
       refute source =~ "scripts/build_integration_server.sh"
     end
 
-    integration_script =
-      File.read!(Path.expand("../../../scripts/test_integration.sh", __DIR__))
-
     assert integration_script =~ release_image
     refute integration_script =~ "build_integration_server.sh"
     assert integration_script =~ "mise exec -- mix run"
     assert integration_script =~ "mise exec -- mix test"
+  end
 
+  test "the fallback integration build pins the reviewed FerricStore revision" do
     build_script =
       File.read!(Path.expand("../../../scripts/build_integration_server.sh", __DIR__))
 
-    assert build_script =~ "8ddcdf3e8cdc7c0fcf6d243d1e8260a9abd6f7a9"
+    assert build_script =~ "fc2f77573ecd4f46b384244b50e1c1d4df10198f"
     assert build_script =~ "git -C \"$SERVER_SOURCE\" rev-parse HEAD"
     refute build_script =~ "git apply"
     refute build_script =~ "SERVER_PATCH"

@@ -7,6 +7,8 @@ defmodule FerricStore.Flow.V010QueryContractTest do
     QueryBuilder,
     QueryError,
     QueryExplainResult,
+    QueryIndex,
+    QueryIndexFormat,
     QueryIndexStatus,
     QueryResponse,
     QueryResult
@@ -504,12 +506,54 @@ defmodule FerricStore.Flow.V010QueryContractTest do
     assert %QueryIndexStatus{
              contract_version: "ferric.flow.query.indexes/v1",
              registry: %{catalog_version: 1},
-             indexes: [%{id: "flow_runs_tenant_updated", queryable: true}]
+             indexes: [
+               %QueryIndex{
+                 id: "flow_runs_tenant_updated",
+                 queryable: true,
+                 covering_fields: [
+                   "partition_key",
+                   "run_id",
+                   "updated_at_ms",
+                   "version",
+                   "attribute.customer",
+                   "state_meta.failed.reason"
+                 ],
+                 format: %QueryIndexFormat{
+                   entry: "ferric.flow.query.composite.entry/v2",
+                   counter: nil
+                 }
+               }
+             ]
            } = Flow.query_indexes(client)
 
     assert_received {:native_request, 0x0231, %{"query" => "EXPLAIN " <> @query}}
     assert_received {:native_request, 0x0231, %{"query" => "EXPLAIN ANALYZE " <> @query}}
     assert_received {:native_request, 0x0100, %{"command" => "FLOW.QUERY.INDEXES", "args" => []}}
+  end
+
+  test "0.11 index status requires bounded covering and format metadata" do
+    mutations = [
+      &pop_in(&1, ["indexes", Access.at(0), "covering_fields"]),
+      &put_in(&1, ["indexes", Access.at(0), "covering_fields"], ["run_id", "run_id"]),
+      &put_in(
+        &1,
+        ["indexes", Access.at(0), "covering_fields"],
+        Enum.map(0..32, fn position -> "attribute.field_#{position}" end)
+      ),
+      &pop_in(&1, ["indexes", Access.at(0), "format"]),
+      &put_in(&1, ["indexes", Access.at(0), "format", "counter"], false)
+    ]
+
+    for mutate <- mutations do
+      malformed =
+        case mutate.(index_status_response()) do
+          {_removed, response} -> response
+          response -> response
+        end
+
+      assert {:error, {:invalid_flow_query_response, _field, _value}} =
+               QueryResponse.indexes(malformed)
+    end
   end
 
   test "explain rejects a malformed query fingerprint" do
@@ -688,7 +732,22 @@ defmodule FerricStore.Flow.V010QueryContractTest do
           "version" => version,
           "build_id" => "build-1",
           "state" => "active",
-          "queryable" => true
+          "queryable" => true,
+          "covering_fields" => [
+            "partition_key",
+            "run_id",
+            "updated_at_ms",
+            "version",
+            "attribute.customer",
+            "state_meta.failed.reason"
+          ],
+          "format" => %{
+            "query_row" => "ferric.flow.query.row/v1",
+            "key" => "ferric.flow.query.composite.key/v1",
+            "entry" => "ferric.flow.query.composite.entry/v2",
+            "reverse" => "ferric.flow.query.composite.reverse/v1",
+            "counter" => nil
+          }
         }
       ]
     }

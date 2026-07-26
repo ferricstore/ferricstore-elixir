@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 - 2026-07-26
+
+- Require FerricStore 0.11.0 while retaining native wire protocol v1 and the
+  existing FQL1 query/result contracts.
+- Add typed `%QueryIndex{}` and `%QueryIndexFormat{}` management responses with
+  bounded covering fields and opaque per-generation codec identities.
+- Reject missing, duplicate, oversized, invalid UTF-8, and malformed nullable
+  index metadata, with focused and live OSS catalog coverage.
+
 ## 0.5.1 - 2026-07-24
 
 - Require FerricStore 0.10.3 for result projections and the negotiated compact

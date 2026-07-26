@@ -2,8 +2,8 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public beta `0.5.1`. This release requires FerricStore `~> 0.10.3`.
-FerricStore 0.10 is a breaking beta API contract; native wire framing remains
+Status: public beta `0.6.0`. This release requires FerricStore `~> 0.11.0`.
+FerricStore 0.11 is a breaking beta API contract; native wire framing remains
 protocol v1. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
@@ -30,7 +30,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.5.1"}
+    {:ferricstore_sdk, "~> 0.6.0"}
   ]
 end
 ```
@@ -44,7 +44,7 @@ mix test
 
 ### 2. Start FerricStore
 
-For local development, run the same immutable FerricStore 0.10.3 image used by
+For local development, run the same immutable FerricStore 0.11.0 image used by
 the SDK integration workflow:
 
 ```bash
@@ -53,7 +53,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.10.3@sha256:f78a6f716cef8a1ef0a36ff620e653f9615bf9ba45abe9d86c990234fb9850d3
+  ghcr.io/ferricstore/ferricstore:0.11.0@sha256:14a386cebabb20d941ae361947ca47bdc0f791e28ec9ba13d50d5d841200c940
 ```
 
 The SDK examples assume:
@@ -92,6 +92,12 @@ params = %{"partition" => "partition-a", "type" => "invoice", "state" => "queued
 %FerricStore.Flow.QueryExplainResult{} = FerricStore.Flow.explain(client, query, params)
 %FerricStore.Flow.QueryIndexStatus{} = FerricStore.Flow.query_indexes(client)
 ```
+
+Each `%FerricStore.Flow.QueryIndex{}` reports `covering_fields`, including
+covered dynamic `attribute.*` and `state_meta.*` paths, and an opaque `format`
+describing its derived-storage generation. Use format changes to identify a
+rebuild requirement; do not decode server storage from these values. The
+counter format is `nil` when an index has no exact count prefix.
 
 Select a sparse result map by adding up to 32 source-specific fields after
 `RETURN RECORD` or `RETURN RECORDS`, for example

@@ -5,6 +5,8 @@ defmodule FerricStore.ClientIntegrationTest do
     PolicySnapshot,
     QueryError,
     QueryExplainResult,
+    QueryIndex,
+    QueryIndexFormat,
     QueryIndexStatus,
     QueryProjection,
     QueryResult,
@@ -623,10 +625,26 @@ defmodule FerricStore.ClientIntegrationTest do
     assert %QueryExplainResult{status: "executed", actual: %{result_records: 2}} =
              FerricStore.Flow.explain_analyze(client, query, params)
 
-    assert %QueryIndexStatus{registry: %{catalog_version: version}, indexes: [_ | _]} =
+    assert %QueryIndexStatus{registry: %{catalog_version: version}, indexes: indexes} =
              FerricStore.Flow.query_indexes(client)
 
     assert version > 0
+
+    assert Enum.all?(indexes, fn
+             %QueryIndex{
+               covering_fields: [_ | _],
+               format: %QueryIndexFormat{
+                 query_row: query_row,
+                 key: key,
+                 entry: entry,
+                 reverse: reverse
+               }
+             } ->
+               Enum.all?([query_row, key, entry, reverse], &(is_binary(&1) and byte_size(&1) > 0))
+
+             _other ->
+               false
+           end)
 
     assert {:error, %QueryError{code: "unsupported_field", position: position}} =
              FerricStore.Flow.query(
