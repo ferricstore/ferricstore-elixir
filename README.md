@@ -2,11 +2,11 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public beta `0.6.0`. This release requires FerricStore `~> 0.11.0`.
-FerricStore 0.11 is a breaking beta API contract; native wire framing remains
-protocol v1. APIs may change before `1.0`, but the SDK is
-covered by command-construction tests, architecture tests, Docker-backed
-integration tests, and local benchmark scripts.
+Status: public beta `0.6.1`. This release requires FerricStore `~> 0.11.0` and
+is tested against FerricStore `0.11.1`. FerricStore 0.11 is a breaking beta API
+contract; native wire framing remains protocol v1. APIs may change before `1.0`,
+but the SDK is covered by command-construction tests, architecture tests,
+Docker-backed integration tests, and local benchmark scripts.
 
 FerricFlow keeps each workflow or job's state and history in one durable place.
 It is an explicit durable state pipeline, not a hidden deterministic replay
@@ -30,7 +30,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.6.0"}
+    {:ferricstore_sdk, "~> 0.6.1"}
   ]
 end
 ```
@@ -44,7 +44,7 @@ mix test
 
 ### 2. Start FerricStore
 
-For local development, run the same immutable FerricStore 0.11.0 image used by
+For local development, run the same immutable FerricStore 0.11.1 image used by
 the SDK integration workflow:
 
 ```bash
@@ -53,7 +53,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.11.0@sha256:14a386cebabb20d941ae361947ca47bdc0f791e28ec9ba13d50d5d841200c940
+  ghcr.io/ferricstore/ferricstore:0.11.1@sha256:0439899e853741a098854b510f8db153b73a4afedc13da256ee5643c838bc8f2
 ```
 
 The SDK examples assume:

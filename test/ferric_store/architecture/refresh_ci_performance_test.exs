@@ -155,7 +155,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     integration_script =
       File.read!(Path.expand("../../../scripts/test_integration.sh", __DIR__))
 
-    version = Regex.escape(FerricStore.minimum_server_version())
+    version = "0.11.1"
 
     assert [release_image] =
              Regex.run(
@@ -183,11 +183,18 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     assert integration_script =~ "mise exec -- mix test"
   end
 
+  test "branch CI does not duplicate the complete release gate on tag pushes" do
+    workflow = File.read!(Path.expand("../../../.github/workflows/ci.yml", __DIR__))
+
+    assert workflow =~ ~s|push:\n    branches:\n      - "**"|
+    assert workflow =~ "pull_request:"
+  end
+
   test "the fallback integration build pins the reviewed FerricStore revision" do
     build_script =
       File.read!(Path.expand("../../../scripts/build_integration_server.sh", __DIR__))
 
-    assert build_script =~ "fc2f77573ecd4f46b384244b50e1c1d4df10198f"
+    assert build_script =~ "dc12cff4a916496a7c56e2f3421c9a13bd3dcd8d"
     assert build_script =~ "git -C \"$SERVER_SOURCE\" rev-parse HEAD"
     refute build_script =~ "git apply"
     refute build_script =~ "SERVER_PATCH"

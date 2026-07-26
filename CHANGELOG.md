@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1 - 2026-07-26
+
+- Validate the unchanged compact FQL1 query/result contract against
+  FerricStore 0.11.1's fused index execution and prepared response path.
+- Pin live integration and the reviewed OSS fallback revision to FerricStore
+  0.11.1 while retaining `~> 0.11.0` compatibility and native wire v1.
+
 ## 0.6.0 - 2026-07-26
 
 - Require FerricStore 0.11.0 while retaining native wire protocol v1 and the
