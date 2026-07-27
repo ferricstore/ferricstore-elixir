@@ -95,7 +95,20 @@ defmodule FerricStore.Protocol.FlowQueryResultDecoderTest do
     <<prefix::binary-size(103), bitmap::32, rest::binary>> = payload
     reserved = <<prefix::binary, Bitwise.bor(bitmap, Bitwise.bsl(1, 20))::32, rest::binary>>
 
-    for malformed <- [reserved, binary_part(payload, 0, byte_size(payload) - 1), payload <> <<0>>] do
+    malformed_payloads = [
+      reserved,
+      binary_part(payload, 0, byte_size(payload) - 1),
+      payload <> <<0>>,
+      cursor_page_payload("fqc1_short"),
+      cursor_page_payload("other_cursor_token"),
+      cursor_page_payload("fqc1_" <> :binary.copy(<<255>>, 11)),
+      put_usage(payload, 0, 0x8000_0000_0000_0000),
+      put_usage(payload, 4, 2),
+      put_usage(payload, 7, 2),
+      count_payload(42) |> put_usage(7, 0)
+    ]
+
+    for malformed <- malformed_payloads do
       assert {:error, _reason} =
                Codec.decode_response(
                  Opcodes.flow_query(),
@@ -160,8 +173,21 @@ defmodule FerricStore.Protocol.FlowQueryResultDecoderTest do
     put_response_bytes(<<0xA0, 1, 2, 1, 0, 0, usage(1)::binary, count::unsigned-64>>)
   end
 
+  defp cursor_page_payload(cursor) do
+    put_response_bytes(
+      <<0xA0, 0, 0, 0, 0, 2, usage(0)::binary, 1, byte_size(cursor)::32, cursor::binary, 0::32>>
+    )
+  end
+
   defp usage(result_records) do
-    <<0::64, 0::64, 0::64, 0::64, 0::64, 0::64, 0::64, result_records::64, 0::64, 0::64, 0::64>>
+    <<0::64, 0::64, result_records::64, 0::64, result_records::64, 0::64, 0::64,
+      result_records::64, 0::64, 0::64, 0::64>>
+  end
+
+  defp put_usage(payload, index, value) do
+    offset = 6 + index * 8
+    <<prefix::binary-size(^offset), _previous::64, rest::binary>> = payload
+    <<prefix::binary, value::unsigned-64, rest::binary>>
   end
 
   defp put_response_bytes(payload) do

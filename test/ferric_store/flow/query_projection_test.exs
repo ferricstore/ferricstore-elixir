@@ -54,6 +54,35 @@ defmodule FerricStore.Flow.QueryProjectionTest do
                :record,
                [:run_id]
              )
+
+    assert {:error, {:invalid_flow_query_projection, :invalid_query}} =
+             QueryProjection.project(
+               "FROM runs WHERE run_id = @id;;;",
+               :record,
+               [:run_id]
+             )
+
+    assert {:error, {:invalid_flow_query_projection, :invalid_query}} =
+             QueryProjection.project(
+               "FROM runs WHERE run_id = @id; ;",
+               :record,
+               [:run_id]
+             )
+
+    assert {:error, {:invalid_flow_query_projection, :invalid_source}} =
+             QueryProjection.project(
+               "\u00A0FROM runs WHERE run_id = @id",
+               :record,
+               [:run_id]
+             )
+
+    for query <- [
+          "FROM runs\u00E9 WHERE run_id = @id",
+          "FROM run\u017F WHERE run_id = @id"
+        ] do
+      assert {:error, {:invalid_flow_query_projection, :invalid_source}} =
+               QueryProjection.project(query, :record, [:run_id])
+    end
   end
 
   test "bounds field counts, dynamic names, and final query bytes" do

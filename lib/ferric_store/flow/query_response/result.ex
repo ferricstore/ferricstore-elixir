@@ -32,7 +32,8 @@ defmodule FerricStore.Flow.QueryResponse.Result do
     with true <- (is_list(records) and length(records) <= 100) || {:error, :invalid_records},
          true <- Enum.all?(records, &is_map/1) || {:error, :invalid_records},
          {:ok, page} <- V.page(Types.get(value, "page")),
-         :ok <- V.equal_count(usage.result_records, length(records), :records) do
+         :ok <- V.equal_count(usage.result_records, length(records), :records),
+         :ok <- V.not_greater(usage.result_records, usage.scanned_entries, :records) do
       {:ok,
        %QueryResult{
          version: @contract,

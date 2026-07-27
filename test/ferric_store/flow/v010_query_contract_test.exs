@@ -6,10 +6,18 @@ defmodule FerricStore.Flow.V010QueryContractTest do
   alias FerricStore.Flow.{
     QueryBuilder,
     QueryError,
+    QueryExplainCapabilities,
     QueryExplainResult,
     QueryIndex,
+    QueryIndexBuild,
+    QueryIndexCoverage,
+    QueryIndexField,
     QueryIndexFormat,
+    QueryIndexRetirement,
+    QueryIndexServices,
+    QueryIndexStatistics,
     QueryIndexStatus,
+    QueryIndexValidation,
     QueryResponse,
     QueryResult
   }
@@ -136,7 +144,7 @@ defmodule FerricStore.Flow.V010QueryContractTest do
              version: "ferric.flow.query.result/v1",
              records: [%{"id" => "one"}, %{"id" => "two"}],
              count: nil,
-             page: %{has_more: true, cursor: "fqc1_page"},
+             page: %{has_more: true, cursor: "fqc1_next-page-token"},
              usage: %{result_records: 2}
            } = Flow.query(client, @query, %{"type" => "invoice", "tenant" => "tenant-a"})
 
@@ -146,6 +154,16 @@ defmodule FerricStore.Flow.V010QueryContractTest do
                        "query" => @query,
                        "params" => %{"type" => "invoice", "tenant" => "tenant-a"}
                      }}
+  end
+
+  test "EXPLAIN preserves non-grammar leading whitespace" do
+    query = "\u00A0FROM runs WHERE run_id = @id RETURN RECORD"
+    {:ok, client} = CaptureClient.start_link(self(), [{:ok, explain_response("planned", nil)}])
+
+    assert %QueryExplainResult{status: "planned"} =
+             Flow.explain(client, query, %{"id" => "run-1"})
+
+    assert_received {:native_request, 0x0231, %{"query" => "EXPLAIN " <> ^query}}
   end
 
   test "query preserves sparse records returned by a field projection" do
@@ -184,6 +202,16 @@ defmodule FerricStore.Flow.V010QueryContractTest do
                "bad" => self()
              })
 
+    for name <- ["bad name", "unicode_ä", "bad:name", "bad/name", "bad\n"] do
+      assert {:error, %FerricStore.Error{raw: {:invalid_flow_query_parameter, ^name, :name}}} =
+               Flow.query(client, "FROM runs WHERE run_id = @id RETURN RECORD", %{name => "one"})
+    end
+
+    for value <- [String.duplicate("x", 65_536), :binary.copy(<<0>>, 65_536)] do
+      assert {:error, %FerricStore.Error{raw: {:invalid_flow_query_parameter, "id", :size}}} =
+               Flow.query(client, "FROM runs WHERE run_id = @id RETURN RECORD", %{"id" => value})
+    end
+
     refute_received {:native_request, _, _}
   end
 
@@ -202,6 +230,11 @@ defmodule FerricStore.Flow.V010QueryContractTest do
 
     assert {:error, %FerricStore.Error{raw: {:invalid_flow_query_index_id, ^invalid}}} =
              Flow.query_indexes(client, invalid)
+
+    trailing_newline = "index\n"
+
+    assert {:error, %FerricStore.Error{raw: {:invalid_flow_query_index_id, ^trailing_newline}}} =
+             Flow.query_indexes(client, trailing_newline)
 
     refute_received {:native_request, _, _}
     refute_received {:command_exec, _, _}
@@ -241,6 +274,35 @@ defmodule FerricStore.Flow.V010QueryContractTest do
               raw: %{"code" => "unsupported_field"}
             }} =
              Flow.query(client, "FROM runs WHERE run_id = @id RETURN RECORD", %{"id" => "one"})
+  end
+
+  test "diagnostics enforce the server's bounded wire contract" do
+    diagnostic = query_diagnostic_response()
+
+    too_deep =
+      Enum.reduce(~w(g f e d c b a), 1, fn key, nested -> %{key => nested} end)
+
+    malformed = [
+      Map.put(diagnostic, "detail", String.duplicate("x", 1_025)),
+      Map.put(
+        diagnostic,
+        "context",
+        Map.new(0..16, fn index -> {"field_#{index}", index} end)
+      ),
+      Map.put(diagnostic, "context", %{0 => "invalid"}),
+      Map.put(diagnostic, "context", %{"" => "invalid"}),
+      Map.put(diagnostic, "context", %{"fields" => List.duplicate(0, 33)}),
+      Map.put(diagnostic, "context", %{"estimate" => 1.5}),
+      Map.put(diagnostic, "context", %{"estimate" => 0x8000_0000_0000_0000}),
+      Map.put(diagnostic, "context", too_deep)
+    ]
+
+    assert {:ok, %QueryError{code: "unsupported_field"}} =
+             QueryResponse.diagnostic({:bad_request, diagnostic})
+
+    for invalid <- malformed do
+      assert :error = QueryResponse.diagnostic({:bad_request, invalid})
+    end
   end
 
   test "search rejects empty prepared metadata instead of issuing a broad query" do
@@ -487,7 +549,14 @@ defmodule FerricStore.Flow.V010QueryContractTest do
         {:ok, index_status_response()}
       ])
 
-    assert %QueryExplainResult{status: "planned", actual: nil} =
+    assert %QueryExplainResult{
+             status: "planned",
+             actual: nil,
+             stats: %{"source" => "fresh"},
+             quality: %{pagination: "live_seek"},
+             decision: %{"reason" => "only_bounded_candidate"},
+             alternatives: []
+           } =
              Flow.explain(client, @query, %{"tenant" => "tenant-a", "type" => "invoice"})
 
     assert %QueryExplainResult{status: "executed", actual: %{result_records: 2}} =
@@ -509,21 +578,32 @@ defmodule FerricStore.Flow.V010QueryContractTest do
              indexes: [
                %QueryIndex{
                  id: "flow_runs_tenant_updated",
+                 source: "runs",
                  queryable: true,
+                 fields: [
+                   %QueryIndexField{name: "partition_key", direction: "asc", encoding: "hashed"},
+                   %QueryIndexField{name: "updated_at_ms", direction: "desc", encoding: "ordered"}
+                 ],
+                 workloads: ["tenant_updated"],
+                 count_prefixes: [1],
                  covering_fields: [
                    "partition_key",
                    "run_id",
                    "updated_at_ms",
-                   "version",
-                   "attribute.customer",
-                   "state_meta.failed.reason"
+                   "version"
                  ],
                  format: %QueryIndexFormat{
                    entry: "ferric.flow.query.composite.entry/v2",
-                   counter: nil
-                 }
+                   counter: "ferric.flow.query.composite.counter/v1"
+                 },
+                 coverage: %QueryIndexCoverage{validation: "passed"},
+                 build: %QueryIndexBuild{scanned_records: 10},
+                 validation: %QueryIndexValidation{status: "passed", validated_at_ms: 999_000},
+                 retirement: %QueryIndexRetirement{status: "not_applicable"},
+                 statistics: %QueryIndexStatistics{status: "fresh", samples: 2}
                }
-             ]
+             ],
+             services: %QueryIndexServices{statistics_store: "ready"}
            } = Flow.query_indexes(client)
 
     assert_received {:native_request, 0x0231, %{"query" => "EXPLAIN " <> @query}}
@@ -556,6 +636,143 @@ defmodule FerricStore.Flow.V010QueryContractTest do
     end
   end
 
+  test "EXPLAIN requires the complete actionable v1 envelope" do
+    for field <- ~w(stats quality pressure decision alternatives actual diagnostic) do
+      malformed = Map.delete(explain_response("planned", nil), field)
+
+      assert {:error, {:invalid_flow_query_response, _field, _value}} =
+               QueryResponse.explain(malformed)
+    end
+  end
+
+  test "EXPLAIN decodes bounded specialized executor capabilities" do
+    response = specialized_explain_response()
+
+    assert {:ok,
+            %QueryExplainResult{
+              status: "planned",
+              stats: nil,
+              quality: nil,
+              pressure: nil,
+              decision: nil,
+              alternatives: [],
+              actual: nil,
+              diagnostic: nil,
+              capabilities: %QueryExplainCapabilities{
+                requested: ["flow_query_point_v1"],
+                available: ["flow_query_point_v1", "flow_query_history_v1"],
+                missing: []
+              }
+            }} = QueryResponse.explain(response)
+  end
+
+  test "EXPLAIN rejects malformed specialized executor envelopes" do
+    response = specialized_explain_response()
+
+    malformed = [
+      Map.delete(response, "capabilities"),
+      pop_in(response, ["capabilities", "requested"]) |> elem(1),
+      put_in(response, ["capabilities", "available"], [
+        "flow_query_point_v1",
+        "flow_query_point_v1"
+      ]),
+      put_in(
+        response,
+        ["capabilities", "missing"],
+        Enum.map(0..64, &"missing_#{&1}")
+      ),
+      Map.put(response, "stats", %{}),
+      Map.put(response, "status", "executed"),
+      Map.put(response, "actual", nil)
+    ]
+
+    for invalid <- malformed do
+      assert {:error, {:invalid_flow_query_response, _field, _value}} =
+               QueryResponse.explain(invalid)
+    end
+  end
+
+  test "index status requires every lifecycle section and service" do
+    for field <-
+          ~w(source fields workloads count_prefixes coverage build validation retirement statistics) do
+      malformed = pop_in(index_status_response(), ["indexes", Access.at(0), field]) |> elem(1)
+
+      assert {:error, {:invalid_flow_query_response, _field, _value}} =
+               QueryResponse.indexes(malformed)
+    end
+
+    for service <- ~w(registry lifecycle_worker statistics_store statistics_worker) do
+      malformed = pop_in(index_status_response(), ["services", service]) |> elem(1)
+
+      assert {:error, {:invalid_flow_query_response, _field, _value}} =
+               QueryResponse.indexes(malformed)
+    end
+  end
+
+  test "index status decodes retirement progress without build scope" do
+    response =
+      index_status_response()
+      |> put_in(["indexes", Access.at(0), "state"], "retiring")
+      |> put_in(["indexes", Access.at(0), "queryable"], false)
+      |> put_in(
+        ["indexes", Access.at(0), "retirement"],
+        %{
+          "status" => "pending",
+          "phase_counts" => %{"pending" => 2},
+          "current_phases" => ["pending"],
+          "completed_shards" => 0,
+          "total_shards" => 2,
+          "deleted_entries" => 0,
+          "deleted_bytes" => 0,
+          "rewritten_reverse_rows" => 0
+        }
+      )
+
+    assert {:ok,
+            %QueryIndexStatus{
+              indexes: [%QueryIndex{retirement: %QueryIndexRetirement{status: "pending"}}]
+            }} = QueryResponse.indexes(response)
+  end
+
+  test "filtered index status rejects a different identity" do
+    response = put_in(index_status_response(), ["indexes", Access.at(0), "id"], "different_index")
+
+    assert {:error, {:invalid_flow_query_response, {:index_contract, :filtered_identity}, _raw}} =
+             QueryResponse.indexes(response, "flow_runs_tenant_updated")
+  end
+
+  test "index status rejects cross-field lifecycle contradictions" do
+    malformed = [
+      put_in(index_status_response(), ["indexes", Access.at(0), "id"], "index\n"),
+      put_in(index_status_response(), ["indexes", Access.at(0), "source"], "events"),
+      put_in(
+        index_status_response(),
+        ["indexes", Access.at(0), "fields", Access.at(0), "name"],
+        "type"
+      ),
+      put_in(index_status_response(), ["indexes", Access.at(0), "count_prefixes"], []),
+      put_in(index_status_response(), ["indexes", Access.at(0), "validation", "total_shards"], 3),
+      put_in(index_status_response(), ["indexes", Access.at(0), "queryable"], false),
+      put_in(index_status_response(), ["indexes", Access.at(0), "validation", "mismatches"], 1),
+      update_in(
+        index_status_response(),
+        ["indexes", Access.at(0), "covering_fields"],
+        &(&1 ++ ["attribute.customer\n"])
+      ),
+      put_in(
+        index_status_response(),
+        ["indexes", Access.at(0), "statistics", "fresh_samples"],
+        1
+      ),
+      put_in(index_status_response(), ["indexes", Access.at(0), "statistics", "newest_age_ms"], 2)
+    ]
+
+    for response <- malformed do
+      assert {:error, {:invalid_flow_query_response, _field, _value}} =
+               QueryResponse.indexes(response)
+    end
+  end
+
   test "explain rejects a malformed query fingerprint" do
     malformed = Map.put(explain_response("planned", nil), "query_fingerprint", "abc123")
 
@@ -566,11 +783,67 @@ defmodule FerricStore.Flow.V010QueryContractTest do
   test "index status accepts exactly the unsigned 64-bit metadata domain" do
     maximum = 18_446_744_073_709_551_615
 
+    response =
+      index_status_response(maximum)
+      |> put_in(["observed_at_ms"], maximum)
+      |> put_in(["statistics_max_age_ms"], maximum)
+      |> put_in(["indexes", Access.at(0), "state"], "retiring")
+      |> put_in(["indexes", Access.at(0), "queryable"], false)
+      |> put_in(["indexes", Access.at(0), "coverage", "complete_shards"], maximum)
+      |> put_in(["indexes", Access.at(0), "coverage", "total_shards"], maximum)
+      |> put_in(["indexes", Access.at(0), "build", "phase_counts"], %{"done" => maximum})
+      |> put_in(["indexes", Access.at(0), "build", "completed_shards"], maximum)
+      |> put_in(["indexes", Access.at(0), "build", "total_shards"], maximum)
+      |> put_in(["indexes", Access.at(0), "build", "scanned_records"], maximum)
+      |> put_in(["indexes", Access.at(0), "build", "written_entries"], maximum)
+      |> put_in(["indexes", Access.at(0), "build", "written_bytes"], maximum)
+      |> put_in(["indexes", Access.at(0), "validation", "phase_counts"], %{
+        "done" => maximum
+      })
+      |> put_in(["indexes", Access.at(0), "validation", "completed_shards"], maximum)
+      |> put_in(["indexes", Access.at(0), "validation", "total_shards"], maximum)
+      |> put_in(["indexes", Access.at(0), "validation", "checked_records"], maximum)
+      |> put_in(["indexes", Access.at(0), "validation", "checked_entries"], maximum)
+      |> put_in(["indexes", Access.at(0), "validation", "validated_at_ms"], maximum)
+      |> put_in(
+        ["indexes", Access.at(0), "retirement"],
+        %{
+          "status" => "complete",
+          "phase_counts" => %{"done" => maximum},
+          "current_phases" => ["done"],
+          "completed_shards" => maximum,
+          "total_shards" => maximum,
+          "deleted_entries" => maximum,
+          "deleted_bytes" => maximum,
+          "rewritten_reverse_rows" => maximum
+        }
+      )
+      |> put_in(["indexes", Access.at(0), "statistics"], %{
+        "status" => "fresh",
+        "samples" => maximum,
+        "fresh_samples" => maximum,
+        "stale_samples" => 0,
+        "future_samples" => 0,
+        "oldest_collected_at_ms" => 0,
+        "newest_collected_at_ms" => 0,
+        "oldest_age_ms" => maximum,
+        "newest_age_ms" => maximum
+      })
+
     assert {:ok,
             %QueryIndexStatus{
+              observed_at_ms: ^maximum,
               registry: %{epoch: ^maximum, catalog_version: ^maximum},
-              indexes: [%{version: ^maximum}]
-            }} = QueryResponse.indexes(index_status_response(maximum))
+              indexes: [
+                %{
+                  version: ^maximum,
+                  build: %{scanned_records: ^maximum},
+                  validation: %{validated_at_ms: ^maximum},
+                  retirement: %{deleted_entries: ^maximum},
+                  statistics: %{samples: ^maximum}
+                }
+              ]
+            }} = QueryResponse.indexes(response)
 
     invalid = put_in(index_status_response(), ["registry", "epoch"], maximum + 1)
 
@@ -591,11 +864,6 @@ defmodule FerricStore.Flow.V010QueryContractTest do
 
     assert {:error, {:invalid_flow_query_response, {:non_negative, "scanned_entries"}, _value}} =
              QueryResponse.result(invalid_usage)
-
-    invalid_status = put_in(index_status_response(), ["observed_at_ms"], maximum + 1)
-
-    assert {:error, {:invalid_flow_query_response, {:non_negative, "observed_at_ms"}, _value}} =
-             QueryResponse.indexes(invalid_status)
   end
 
   test "query responses reject invalid UTF-8 text" do
@@ -612,6 +880,13 @@ defmodule FerricStore.Flow.V010QueryContractTest do
              QueryResponse.result(invalid)
   end
 
+  test "query responses reject unsupported quality values" do
+    invalid = put_in(query_response(), ["quality", "exactness"], "future_exactness")
+
+    assert {:error, {:invalid_flow_query_response, {:quality, "exactness"}, _value}} =
+             QueryResponse.result(invalid)
+  end
+
   test "query response page validation is bounded and preserves error precedence" do
     assert {:ok, %QueryResult{page: %{has_more: false, cursor: nil}}} =
              QueryResponse.result(put_in(query_response(), ["page"], %{"has_more" => false}))
@@ -624,8 +899,9 @@ defmodule FerricStore.Flow.V010QueryContractTest do
       {%{"has_more" => true, "cursor" => "other_cursor"}, :page_cursor, "other_cursor"},
       {%{"has_more" => true, "cursor" => nil}, :page_consistency,
        %{"has_more" => true, "cursor" => nil}},
-      {%{"has_more" => false, "cursor" => "fqc1_page"}, :page_consistency,
-       %{"has_more" => false, "cursor" => "fqc1_page"}}
+      {%{"has_more" => true, "cursor" => "fqc1_short"}, :page_cursor, "fqc1_short"},
+      {%{"has_more" => false, "cursor" => "fqc1_next-page-token"}, :page_consistency,
+       %{"has_more" => false, "cursor" => "fqc1_next-page-token"}}
     ]
 
     for {page, field, value} <- cases do
@@ -633,6 +909,23 @@ defmodule FerricStore.Flow.V010QueryContractTest do
               {:invalid_flow_query_response, :records,
                {:invalid_flow_query_response, ^field, ^value}}} =
                QueryResponse.result(put_in(query_response(), ["page"], page))
+    end
+  end
+
+  test "query response usage counters preserve server invariants" do
+    cases = [
+      {"hydrated_records", 3},
+      {"duplicate_entries", 3},
+      {"range_pages", 4},
+      {"residual_checks", 25},
+      {"scanned_entries", 1}
+    ]
+
+    for {field, value} <- cases do
+      malformed = put_in(query_response(), ["usage", field], value)
+
+      assert {:error, {:invalid_flow_query_response, _field, _value}} =
+               QueryResponse.result(malformed)
     end
   end
 
@@ -667,8 +960,8 @@ defmodule FerricStore.Flow.V010QueryContractTest do
     %{
       "version" => "ferric.flow.query.result/v1",
       "records" => [%{"id" => "one"}, %{"id" => "two"}],
-      "page" => %{"has_more" => true, "cursor" => "fqc1_page"},
-      "quality" => quality(),
+      "page" => %{"has_more" => true, "cursor" => "fqc1_next-page-token"},
+      "quality" => Map.put(quality(), "pagination", "live_seek"),
       "usage" => usage(2)
     }
   end
@@ -689,17 +982,53 @@ defmodule FerricStore.Flow.V010QueryContractTest do
       "status" => status,
       "plan" => %{"path" => "composite"},
       "estimate" => %{"scanned_entries" => 2},
+      "stats" => %{"source" => "fresh"},
+      "quality" => Map.put(quality(), "pagination", "live_seek"),
       "bounds" => %{"scanned_entries" => 50_000},
-      "actual" => actual
+      "pressure" => %{"resources" => []},
+      "decision" => %{"reason" => "only_bounded_candidate"},
+      "alternatives" => [],
+      "actual" => actual,
+      "diagnostic" => nil
+    }
+  end
+
+  defp specialized_explain_response do
+    %{
+      "version" => "ferric.flow.explain/v1",
+      "query_fingerprint" => String.duplicate("b", 64),
+      "status" => "planned",
+      "plan" => %{"path" => "point_lookup"},
+      "estimate" => %{"scanned_entries" => 1},
+      "bounds" => %{"scanned_entries" => 1},
+      "capabilities" => %{
+        "requested" => ["flow_query_point_v1"],
+        "available" => ["flow_query_point_v1", "flow_query_history_v1"],
+        "missing" => []
+      }
+    }
+  end
+
+  defp query_diagnostic_response do
+    %{
+      "code" => "unsupported_field",
+      "message" => "unsupported query field",
+      "detail" => "Use a supported field.",
+      "hint" => "See context.supported_fields.",
+      "retryable" => false,
+      "safe_to_retry" => false,
+      "retry_after_ms" => 0,
+      "position" => %{"byte" => 18, "line" => 1, "column" => 19},
+      "context" => %{"supported_fields" => ["partition_key", "run_id", "type"]}
     }
   end
 
   defp quality do
     %{
-      "exactness" => "exact",
-      "freshness" => "authoritative",
+      "exactness" => "authoritative",
+      "freshness" => "current",
       "coverage" => "complete",
-      "pagination" => "stable"
+      "pagination" => "authenticated_seek"
     }
   end
 
@@ -722,31 +1051,81 @@ defmodule FerricStore.Flow.V010QueryContractTest do
   defp index_status_response(version \\ 1) do
     %{
       "contract_version" => "ferric.flow.query.indexes/v1",
-      "observed_at_ms" => 1,
-      "statistics_max_age_ms" => 10_000,
+      "observed_at_ms" => 1_000_000,
+      "statistics_max_age_ms" => 300_000,
       "registry" => %{"epoch" => version, "catalog_version" => version},
-      "services" => %{"projection" => %{"available" => true}},
+      "services" => %{
+        "registry" => "ready",
+        "lifecycle_worker" => "ready",
+        "statistics_store" => "ready",
+        "statistics_worker" => "unavailable"
+      },
       "indexes" => [
         %{
           "id" => "flow_runs_tenant_updated",
           "version" => version,
           "build_id" => "build-1",
+          "source" => "runs",
           "state" => "active",
           "queryable" => true,
+          "fields" => [
+            %{"name" => "partition_key", "direction" => "asc", "encoding" => "hashed"},
+            %{"name" => "updated_at_ms", "direction" => "desc", "encoding" => "ordered"}
+          ],
+          "workloads" => ["tenant_updated"],
+          "count_prefixes" => [1],
           "covering_fields" => [
             "partition_key",
             "run_id",
             "updated_at_ms",
-            "version",
-            "attribute.customer",
-            "state_meta.failed.reason"
+            "version"
           ],
           "format" => %{
             "query_row" => "ferric.flow.query.row/v1",
             "key" => "ferric.flow.query.composite.key/v1",
             "entry" => "ferric.flow.query.composite.entry/v2",
             "reverse" => "ferric.flow.query.composite.reverse/v1",
-            "counter" => nil
+            "counter" => "ferric.flow.query.composite.counter/v1"
+          },
+          "coverage" => %{
+            "complete_shards" => 2,
+            "total_shards" => 2,
+            "validation" => "passed"
+          },
+          "build" => %{
+            "scope" => "catalog_build",
+            "phase_counts" => %{"done" => 2},
+            "current_phases" => ["done"],
+            "completed_shards" => 2,
+            "total_shards" => 2,
+            "scanned_records" => 10,
+            "written_entries" => 10,
+            "written_bytes" => 900
+          },
+          "validation" => %{
+            "scope" => "catalog_build",
+            "status" => "passed",
+            "phase_counts" => %{"done" => 2},
+            "current_phases" => ["done"],
+            "completed_shards" => 2,
+            "total_shards" => 2,
+            "checked_records" => 10,
+            "checked_entries" => 10,
+            "mismatches" => 0,
+            "failure_reason" => nil,
+            "validated_at_ms" => 999_000
+          },
+          "retirement" => %{"status" => "not_applicable"},
+          "statistics" => %{
+            "status" => "fresh",
+            "samples" => 2,
+            "fresh_samples" => 2,
+            "stale_samples" => 0,
+            "future_samples" => 0,
+            "oldest_collected_at_ms" => 998_000,
+            "newest_collected_at_ms" => 999_000,
+            "oldest_age_ms" => 2_000,
+            "newest_age_ms" => 1_000
           }
         }
       ]

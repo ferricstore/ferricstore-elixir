@@ -10,6 +10,8 @@ defmodule FerricStore.Flow.QueryProjection do
   @max_fields 32
   @max_dynamic_name_bytes 64
 
+  alias FerricStore.Flow.QueryText
+
   @run_fields MapSet.new([
                 :run_id,
                 :type,
@@ -48,6 +50,7 @@ defmodule FerricStore.Flow.QueryProjection do
          {:ok, source} <- query_source(query),
          {:ok, selectors} <- selectors(source, fields),
          false <- return_clause?(query),
+         :ok <- validate_terminator(query),
          projected <- append_projection(query, shape, selectors),
          :ok <- validate_query(projected) do
       {:ok, projected}
@@ -74,9 +77,23 @@ defmodule FerricStore.Flow.QueryProjection do
   defp validate_field_count(_fields), do: error(:field_limit)
 
   defp query_source(query) do
-    case Regex.run(~r/^\s*FROM\s+(runs|events)\b/iu, query, capture: :all_but_first) do
-      [source] -> {:ok, String.to_existing_atom(String.downcase(source))}
-      _no_source -> error(:invalid_source)
+    query = QueryText.trim_leading(query)
+
+    with {:ok, rest} <- QueryText.after_ascii_keyword(query, "FROM"),
+         rest <- QueryText.trim_leading(rest),
+         true <- rest != "",
+         {:ok, source} <- projection_source(rest) do
+      {:ok, source}
+    else
+      _invalid -> error(:invalid_source)
+    end
+  end
+
+  defp projection_source(query) do
+    cond do
+      match?({:ok, _rest}, QueryText.after_ascii_keyword(query, "RUNS")) -> {:ok, :runs}
+      match?({:ok, _rest}, QueryText.after_ascii_keyword(query, "EVENTS")) -> {:ok, :events}
+      true -> :error
     end
   end
 
@@ -145,14 +162,34 @@ defmodule FerricStore.Flow.QueryProjection do
   defp append_projection(query, shape, selectors) do
     query =
       query
-      |> String.trim()
-      |> String.trim_trailing(";")
-      |> String.trim_trailing()
+      |> QueryText.trim()
+      |> trim_one_terminator()
+      |> QueryText.trim_trailing()
 
     query <>
       " RETURN " <>
       (shape |> Atom.to_string() |> String.upcase()) <>
       " (" <> Enum.join(selectors, ", ") <> ")"
+  end
+
+  defp validate_terminator(query) do
+    trimmed = QueryText.trim(query)
+
+    if String.ends_with?(trimmed, ";") do
+      base = trimmed |> trim_one_terminator() |> QueryText.trim_trailing()
+
+      if String.ends_with?(base, ";"), do: error(:invalid_query), else: :ok
+    else
+      :ok
+    end
+  end
+
+  defp trim_one_terminator(query) do
+    size = byte_size(query)
+
+    if size > 0 and :binary.last(query) == ?;,
+      do: binary_part(query, 0, size - 1),
+      else: query
   end
 
   defp return_clause?(query) do

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2 - 2026-07-27
+
+- Add typed specialized-plan capabilities and complete query-index service,
+  field, lifecycle, validation, retirement, and statistics status structs.
+- Enforce server-aligned query parameter, diagnostic, cursor, quality, usage,
+  and selected-index response bounds before exposing results.
+- Preserve binary query text while using allocation-light ASCII keyword checks
+  for explain routing and the existing bounded native request path.
+- Pin live integration and the reviewed OSS fallback revision to FerricStore
+  0.11.3 while retaining `~> 0.11.0` compatibility and native wire v1.
+
 ## 0.6.1 - 2026-07-26
 
 - Validate the unchanged compact FQL1 query/result contract against

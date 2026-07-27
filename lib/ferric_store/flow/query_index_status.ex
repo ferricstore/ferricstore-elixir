@@ -3,7 +3,7 @@ defmodule FerricStore.Flow.QueryIndexStatus do
   Bounded OSS query-index catalog returned by `FLOW.QUERY.INDEXES`.
   """
 
-  alias FerricStore.Flow.QueryIndex
+  alias FerricStore.Flow.{QueryIndex, QueryIndexServices}
 
   @enforce_keys [
     :contract_version,
@@ -29,7 +29,7 @@ defmodule FerricStore.Flow.QueryIndexStatus do
           observed_at_ms: non_neg_integer(),
           statistics_max_age_ms: non_neg_integer(),
           registry: map(),
-          services: map(),
+          services: QueryIndexServices.t(),
           indexes: [QueryIndex.t()],
           raw: map()
         }

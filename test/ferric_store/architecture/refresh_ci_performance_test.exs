@@ -155,7 +155,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     integration_script =
       File.read!(Path.expand("../../../scripts/test_integration.sh", __DIR__))
 
-    version = "0.11.2"
+    version = "0.11.3"
 
     assert [release_image] =
              Regex.run(
@@ -194,7 +194,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     build_script =
       File.read!(Path.expand("../../../scripts/build_integration_server.sh", __DIR__))
 
-    assert build_script =~ "1f26dd855d875c5ff811511848aa9aa6296373dd"
+    assert build_script =~ "21bff730cc206db23413b02a9d32d90008de4492"
     assert build_script =~ "git -C \"$SERVER_SOURCE\" rev-parse HEAD"
     refute build_script =~ "git apply"
     refute build_script =~ "SERVER_PATCH"

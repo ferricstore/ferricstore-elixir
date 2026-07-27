@@ -4,6 +4,7 @@ defmodule FerricStore.Flow.QueryResponse.PageValidation do
   alias FerricStore.Types
 
   @maximum_cursor_bytes 4_096
+  @minimum_cursor_bytes 16
 
   def validate(value) when is_map(value) do
     has_more = Types.get(value, "has_more")
@@ -24,7 +25,7 @@ defmodule FerricStore.Flow.QueryResponse.PageValidation do
   defp validate_cursor(nil), do: :ok
 
   defp validate_cursor(value) when is_binary(value) do
-    if byte_size(value) <= @maximum_cursor_bytes and String.valid?(value) and
+    if byte_size(value) in @minimum_cursor_bytes..@maximum_cursor_bytes and String.valid?(value) and
          String.starts_with?(value, "fqc1_") do
       :ok
     else

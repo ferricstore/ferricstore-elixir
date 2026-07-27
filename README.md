@@ -2,8 +2,8 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public beta `0.6.1`. This release requires FerricStore `~> 0.11.0` and
-is tested against FerricStore `0.11.2`. FerricStore 0.11 is a breaking beta API
+Status: public beta `0.6.2`. This release requires FerricStore `~> 0.11.0` and
+is tested against FerricStore `0.11.3`. FerricStore 0.11 is a breaking beta API
 contract; native wire framing remains protocol v1. APIs may change before `1.0`,
 but the SDK is covered by command-construction tests, architecture tests,
 Docker-backed integration tests, and local benchmark scripts.
@@ -30,7 +30,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.6.1"}
+    {:ferricstore_sdk, "~> 0.6.2"}
   ]
 end
 ```
@@ -44,7 +44,7 @@ mix test
 
 ### 2. Start FerricStore
 
-For local development, run the same immutable FerricStore 0.11.2 image used by
+For local development, run the same immutable FerricStore 0.11.3 image used by
 the SDK integration workflow:
 
 ```bash
@@ -53,7 +53,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  ghcr.io/ferricstore/ferricstore:0.11.2@sha256:90758c3a2d191659928a728c5fb5e5f61d0ee910583e263f3bad543e5055bff8
+  ghcr.io/ferricstore/ferricstore:0.11.3@sha256:c2eef2036f45e7916359edfb92a50e3f36b8ea3c7a4067f22581305f5253c217
 ```
 
 The SDK examples assume:

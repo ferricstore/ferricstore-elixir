@@ -6,6 +6,7 @@ defmodule FerricStore.Flow.QueryResponse do
   defdelegate result(value), to: Result, as: :decode
   defdelegate explain(value), to: Explain, as: :decode
   defdelegate indexes(value), to: Indexes, as: :decode
+  defdelegate indexes(value, expected_id), to: Indexes, as: :decode
 
   @spec diagnostic(term(), term()) :: {:ok, FerricStore.Flow.QueryError.t()} | :error
   def diagnostic(reason, raw \\ nil), do: Diagnostic.from_reason(reason, raw || reason)

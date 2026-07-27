@@ -20,6 +20,12 @@ defmodule FerricStore.Flow.QueryResponse.Validation do
     {"memory_high_water_bytes", :memory_high_water_bytes},
     {"wall_time_us", :wall_time_us}
   ]
+  @quality_values %{
+    "exactness" => ~w(authoritative projected_exact exact not_applicable),
+    "freshness" => ~w(current projection_watermark not_applicable),
+    "coverage" => ~w(complete unavailable),
+    "pagination" => ~w(none complete authenticated_seek live_seek)
+  }
 
   def contract(value, field, expected) do
     case Types.get(value, field) do
@@ -134,21 +140,31 @@ defmodule FerricStore.Flow.QueryResponse.Validation do
   end
 
   def usage(value) when is_map(value) do
-    Enum.reduce_while(@usage_fields, {:ok, %{}}, fn {field, atom}, {:ok, acc} ->
-      case non_negative(value, field) do
-        {:ok, number} -> {:cont, {:ok, Map.put(acc, atom, number)}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
+    with {:ok, usage} <-
+           Enum.reduce_while(@usage_fields, {:ok, %{}}, fn {field, atom}, {:ok, acc} ->
+             case non_negative(value, field) do
+               {:ok, number} -> {:cont, {:ok, Map.put(acc, atom, number)}}
+               {:error, _reason} = error -> {:halt, error}
+             end
+           end),
+         true <- usage.hydrated_records <= usage.scanned_entries,
+         true <- usage.duplicate_entries <= usage.scanned_entries,
+         true <- usage.range_pages <= usage.scanned_entries + usage.range_seeks,
+         true <- usage.residual_checks <= usage.scanned_entries * 12 do
+      {:ok, usage}
+    else
+      false -> invalid(:usage_counters, value)
+      {:error, _reason} = error -> error
+    end
   end
 
   def usage(value), do: invalid(:usage, value)
 
   def quality(value) when is_map(value) do
-    with {:ok, exactness} <- bounded_binary(value, "exactness", 64),
-         {:ok, freshness} <- bounded_binary(value, "freshness", 64),
-         {:ok, coverage} <- bounded_binary(value, "coverage", 64),
-         {:ok, pagination} <- bounded_binary(value, "pagination", 64) do
+    with {:ok, exactness} <- quality_value(value, "exactness"),
+         {:ok, freshness} <- quality_value(value, "freshness"),
+         {:ok, coverage} <- quality_value(value, "coverage"),
+         {:ok, pagination} <- quality_value(value, "pagination") do
       {:ok,
        %{
          exactness: exactness,
@@ -160,6 +176,16 @@ defmodule FerricStore.Flow.QueryResponse.Validation do
   end
 
   def quality(value), do: invalid(:quality, value)
+
+  defp quality_value(value, field) do
+    with {:ok, decoded} <- bounded_binary(value, field, 64),
+         true <- decoded in Map.fetch!(@quality_values, field) do
+      {:ok, decoded}
+    else
+      false -> invalid({:quality, field}, Types.get(value, field))
+      {:error, _reason} = error -> error
+    end
+  end
 
   defdelegate page(value), to: PageValidation, as: :validate
 
@@ -173,6 +199,11 @@ defmodule FerricStore.Flow.QueryResponse.Validation do
 
   def equal_count(actual, expected, shape),
     do: invalid({shape, :result_records}, {actual, expected})
+
+  def not_greater(actual, maximum, _shape) when actual <= maximum, do: :ok
+
+  def not_greater(actual, maximum, shape),
+    do: invalid({shape, :scanned_entries}, {actual, maximum})
 
   def invalid(field, value), do: {:error, {:invalid_flow_query_response, field, value}}
 

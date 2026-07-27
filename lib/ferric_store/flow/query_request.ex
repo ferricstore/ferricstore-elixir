@@ -2,6 +2,7 @@ defmodule FerricStore.Flow.QueryRequest do
   @moduledoc false
 
   alias FerricStore.Flow.QueryResponse
+  alias FerricStore.Flow.QueryText
   alias FerricStore.Protocol.Opcodes
   alias FerricStore.RequestContext
   alias FerricStore.SDK.Native.PreparedRequests
@@ -10,6 +11,7 @@ defmodule FerricStore.Flow.QueryRequest do
   @max_query_bytes 16 * 1_024
   @max_parameters 64
   @max_parameter_name_bytes 128
+  @max_parameter_value_bytes 65_535
   @min_integer -9_223_372_036_854_775_808
   @max_integer 9_223_372_036_854_775_807
 
@@ -35,7 +37,7 @@ defmodule FerricStore.Flow.QueryRequest do
          args = if(index_id == nil, do: [], else: [index_id]),
          result <- PreparedRequests.command_exec(client, "FLOW.QUERY.INDEXES", args, context),
          :ok <- RequestContext.ensure_active(context) do
-      decode(result, :indexes)
+      decode(result, {:indexes, index_id})
     end
   end
 
@@ -64,13 +66,13 @@ defmodule FerricStore.Flow.QueryRequest do
     with {:ok, context} <- PreparedRequests.prepare(opts),
          {:ok, query} <- validate_query(query),
          :ok <- reject_explain_prefix(query),
-         {:ok, payload} <- payload(prefix <> String.trim(query), params, :explain),
+         {:ok, payload} <- payload(prefix <> query, params, :explain),
          do: execute_context(client, payload, context, :explain)
   end
 
   defp decode({:ok, value}, :result), do: QueryResponse.result(value)
   defp decode({:ok, value}, :explain), do: QueryResponse.explain(value)
-  defp decode({:ok, value}, :indexes), do: QueryResponse.indexes(value)
+  defp decode({:ok, value}, {:indexes, index_id}), do: QueryResponse.indexes(value, index_id)
 
   defp decode({:error, reason}, _decoder) do
     case QueryResponse.diagnostic(reason) do
@@ -116,9 +118,17 @@ defmodule FerricStore.Flow.QueryRequest do
   defp validate_parameter(name, value)
        when is_binary(name) and byte_size(name) in 1..@max_parameter_name_bytes do
     cond do
-      not String.valid?(name) -> {:error, {:invalid_flow_query_parameter, name, :name}}
-      parameter_value?(value) -> :ok
-      true -> {:error, {:invalid_flow_query_parameter, name, :type}}
+      not String.valid?(name) or not Regex.match?(~r/\A[A-Za-z0-9_.-]+\z/, name) ->
+        {:error, {:invalid_flow_query_parameter, name, :name}}
+
+      is_binary(value) and byte_size(value) > @max_parameter_value_bytes ->
+        {:error, {:invalid_flow_query_parameter, name, :size}}
+
+      parameter_value?(value) ->
+        :ok
+
+      true ->
+        {:error, {:invalid_flow_query_parameter, name, :type}}
     end
   end
 
@@ -142,10 +152,8 @@ defmodule FerricStore.Flow.QueryRequest do
   defp parameter_value?(_value), do: false
 
   defp explain_prefix?(query) do
-    case Regex.run(~r/^\s*EXPLAIN(?:\s|$)/iu, query) do
-      nil -> false
-      _match -> true
-    end
+    query = QueryText.trim_leading(query)
+    match?({:ok, _rest}, QueryText.after_ascii_keyword(query, "EXPLAIN"))
   end
 
   defp reject_explain_prefix(query) do
@@ -158,7 +166,7 @@ defmodule FerricStore.Flow.QueryRequest do
 
   defp validate_index_id(index_id)
        when is_binary(index_id) and byte_size(index_id) in 1..64 do
-    if String.valid?(index_id) and Regex.match?(~r/^[A-Za-z0-9_.:-]+$/u, index_id),
+    if String.valid?(index_id) and Regex.match?(~r/\A[A-Za-z0-9_.:-]+\z/u, index_id),
       do: :ok,
       else: {:error, {:invalid_flow_query_index_id, index_id}}
   end
