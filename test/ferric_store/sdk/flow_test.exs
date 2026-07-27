@@ -56,9 +56,9 @@ defmodule FerricStore.SDK.FlowTest do
         "page" => %{"has_more" => false, "cursor" => nil},
         "quality" => %{
           "exactness" => "exact",
-          "freshness" => "authoritative",
+          "freshness" => "current",
           "coverage" => "complete",
-          "pagination" => "stable"
+          "pagination" => "complete"
         },
         "usage" => %{
           "range_seeks" => 0,

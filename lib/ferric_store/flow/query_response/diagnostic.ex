@@ -96,14 +96,7 @@ defmodule FerricStore.Flow.QueryResponse.Diagnostic do
   defp validate_context_value(value, depth, remaining)
        when is_map(value) and depth > 0 and map_size(value) <= @max_context_entries do
     Enum.reduce_while(value, {:ok, remaining - 1}, fn {key, item}, {:ok, nodes} ->
-      if valid_context_key?(key) do
-        case validate_context_value(item, depth - 1, nodes) do
-          {:ok, _remaining} = valid -> {:cont, valid}
-          :error -> {:halt, :error}
-        end
-      else
-        {:halt, :error}
-      end
+      validate_context_entry(key, item, depth, nodes)
     end)
   end
 
@@ -118,6 +111,19 @@ defmodule FerricStore.Flow.QueryResponse.Diagnostic do
   end
 
   defp validate_context_value(_value, _depth, _remaining), do: :error
+
+  defp validate_context_entry(key, item, depth, nodes) do
+    if valid_context_key?(key),
+      do: continue_context_value(item, depth, nodes),
+      else: {:halt, :error}
+  end
+
+  defp continue_context_value(item, depth, nodes) do
+    case validate_context_value(item, depth - 1, nodes) do
+      {:ok, _remaining} = valid -> {:cont, valid}
+      :error -> {:halt, :error}
+    end
+  end
 
   defp valid_context_key?(key) do
     is_binary(key) and key != "" and byte_size(key) <= @max_context_key_bytes and

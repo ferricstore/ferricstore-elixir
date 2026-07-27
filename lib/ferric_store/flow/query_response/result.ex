@@ -1,6 +1,7 @@
 defmodule FerricStore.Flow.QueryResponse.Result do
   @moduledoc false
 
+  alias FerricStore.Flow.QueryResponse.MetricsValidation
   alias FerricStore.Flow.QueryResponse.Validation, as: V
   alias FerricStore.Flow.QueryResult
   alias FerricStore.Types
@@ -10,8 +11,8 @@ defmodule FerricStore.Flow.QueryResponse.Result do
   @spec decode(term()) :: {:ok, QueryResult.t()} | {:error, term()}
   def decode(value) when is_map(value) do
     with {:ok, @contract} <- V.contract(value, "version", @contract),
-         {:ok, quality} <- V.quality(Types.get(value, "quality")),
-         {:ok, usage} <- V.usage(Types.get(value, "usage")) do
+         {:ok, quality} <- MetricsValidation.quality(Types.get(value, "quality")),
+         {:ok, usage} <- MetricsValidation.usage(Types.get(value, "usage")) do
       shape(value, quality, usage)
     end
   end

@@ -2,7 +2,7 @@ defmodule FerricStore.Flow.QueryResponse.Explain do
   @moduledoc false
 
   alias FerricStore.Flow.{QueryExplainCapabilities, QueryExplainResult}
-  alias FerricStore.Flow.QueryResponse.{Diagnostic, Validation}
+  alias FerricStore.Flow.QueryResponse.{Diagnostic, MetricsValidation, Validation}
   alias FerricStore.Types
 
   @contract "ferric.flow.explain/v1"
@@ -127,7 +127,7 @@ defmodule FerricStore.Flow.QueryResponse.Explain do
     with true <- Enum.all?(present),
          :ok <- require_nullable_fields(value),
          {:ok, stats} <- Validation.required_map(value, "stats"),
-         {:ok, quality} <- Validation.quality(Types.get(value, "quality")),
+         {:ok, quality} <- MetricsValidation.quality(Types.get(value, "quality")),
          {:ok, pressure} <- Validation.required_map(value, "pressure"),
          {:ok, decision} <- Validation.required_map(value, "decision"),
          {:ok, alternatives} <- alternatives(Types.get(value, "alternatives")) do
@@ -154,7 +154,7 @@ defmodule FerricStore.Flow.QueryResponse.Explain do
   defp actual(value, "executed") do
     case Types.get(value, "actual") do
       nil -> Validation.invalid(:explain_actual, nil)
-      usage -> Validation.usage(usage)
+      usage -> MetricsValidation.usage(usage)
     end
   end
 

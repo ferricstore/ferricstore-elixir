@@ -10,6 +10,7 @@ defmodule FerricStore.Flow.QueryProjection do
   @max_fields 32
   @max_dynamic_name_bytes 64
 
+  alias FerricStore.Flow.QueryProjection.Syntax
   alias FerricStore.Flow.QueryText
 
   @run_fields MapSet.new([
@@ -49,8 +50,8 @@ defmodule FerricStore.Flow.QueryProjection do
          :ok <- validate_field_count(fields),
          {:ok, source} <- query_source(query),
          {:ok, selectors} <- selectors(source, fields),
-         false <- return_clause?(query),
-         :ok <- validate_terminator(query),
+         false <- Syntax.return_clause?(query),
+         :ok <- Syntax.validate_terminator(query),
          projected <- append_projection(query, shape, selectors),
          :ok <- validate_query(projected) do
       {:ok, projected}
@@ -163,7 +164,7 @@ defmodule FerricStore.Flow.QueryProjection do
     query =
       query
       |> QueryText.trim()
-      |> trim_one_terminator()
+      |> Syntax.trim_one_terminator()
       |> QueryText.trim_trailing()
 
     query <>
@@ -171,47 +172,6 @@ defmodule FerricStore.Flow.QueryProjection do
       (shape |> Atom.to_string() |> String.upcase()) <>
       " (" <> Enum.join(selectors, ", ") <> ")"
   end
-
-  defp validate_terminator(query) do
-    trimmed = QueryText.trim(query)
-
-    if String.ends_with?(trimmed, ";") do
-      base = trimmed |> trim_one_terminator() |> QueryText.trim_trailing()
-
-      if String.ends_with?(base, ";"), do: error(:invalid_query), else: :ok
-    else
-      :ok
-    end
-  end
-
-  defp trim_one_terminator(query) do
-    size = byte_size(query)
-
-    if size > 0 and :binary.last(query) == ?;,
-      do: binary_part(query, 0, size - 1),
-      else: query
-  end
-
-  defp return_clause?(query) do
-    query
-    |> strip_quoted(false, [])
-    |> IO.iodata_to_binary()
-    |> then(&Regex.match?(~r/(?:^|[^A-Za-z0-9_])RETURN(?:$|[^A-Za-z0-9_])/iu, &1))
-  end
-
-  defp strip_quoted(<<>>, _quoted, acc), do: Enum.reverse(acc)
-
-  defp strip_quoted(<<"''", rest::binary>>, true, acc),
-    do: strip_quoted(rest, true, ["  " | acc])
-
-  defp strip_quoted(<<"'", rest::binary>>, quoted, acc),
-    do: strip_quoted(rest, not quoted, [" " | acc])
-
-  defp strip_quoted(<<_byte, rest::binary>>, true, acc),
-    do: strip_quoted(rest, true, [" " | acc])
-
-  defp strip_quoted(<<byte, rest::binary>>, false, acc),
-    do: strip_quoted(rest, false, [<<byte>> | acc])
 
   defp error(reason), do: {:error, {:invalid_flow_query_projection, reason}}
 end
