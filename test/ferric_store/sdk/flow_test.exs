@@ -140,11 +140,39 @@ defmodule FerricStore.SDK.FlowTest do
     assert opcode == Opcodes.flow_query()
   end
 
-  test "latest schedule wrapper uses typed schedule opcode", %{client: client} do
-    assert {:ok, %{"type" => "daily", "cron" => "* * * * *"}} =
-             Flow.schedule_create(client, %{type: "daily", cron: "* * * * *"})
+  test "schedule wrapper preserves interval catch-up options", %{client: client} do
+    payload = %{
+      id: "schedule-1",
+      kind: "interval",
+      every_ms: 1_000,
+      start_at_ms: 10_000,
+      now_ms: 9_999,
+      catchup_policy: "fire_once",
+      target: %{id_prefix: "scheduled", type: "billing"}
+    }
 
-    assert_received {:request, opcode, %{"type" => "daily", "cron" => "* * * * *"}, []}
+    assert {:ok,
+            %{
+              "id" => "schedule-1",
+              "kind" => "interval",
+              "every_ms" => 1_000,
+              "start_at_ms" => 10_000,
+              "now_ms" => 9_999,
+              "catchup_policy" => "fire_once",
+              "target" => %{id_prefix: "scheduled", type: "billing"}
+            }} = Flow.schedule_create(client, payload)
+
+    assert_received {:request, opcode,
+                     %{
+                       "id" => "schedule-1",
+                       "kind" => "interval",
+                       "every_ms" => 1_000,
+                       "start_at_ms" => 10_000,
+                       "now_ms" => 9_999,
+                       "catchup_policy" => "fire_once",
+                       "target" => %{id_prefix: "scheduled", type: "billing"}
+                     }, []}
+
     assert opcode == Opcodes.flow_schedule_create()
   end
 

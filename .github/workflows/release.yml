@@ -39,6 +39,7 @@ jobs:
         run: >-
           docker run --detach --rm --name ferricstore-sdk-contract
           --env FERRICSTORE_PROTECTED_MODE=false
+          --env FERRICSTORE_FLOW_SCHEDULER_ENABLED=false
           --env FERRICSTORE_NATIVE_ENABLED=true
           --env FERRICSTORE_NATIVE_BIND=0.0.0.0
           --env FERRICSTORE_NATIVE_PORT=6388

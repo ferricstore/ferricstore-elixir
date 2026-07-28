@@ -109,6 +109,10 @@ defmodule FerricStore.SDK.Native.ServerContractTest do
     assert schemas["FLOW.COMPLETE"] == ["id", "lease_token", "fencing_token"]
   end
 
+  test "the interval schedule contract negotiates bounded catch-up" do
+    assert "catchup_policy" in CapabilityContract.required_schema_fields()["FLOW.SCHEDULE.CREATE"]
+  end
+
   test "rejects a server that omits any current SDK opcode" do
     opcodes =
       CommandSpec.all()

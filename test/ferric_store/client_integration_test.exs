@@ -1182,6 +1182,67 @@ defmodule FerricStore.ClientIntegrationTest do
     assert FerricStore.ping(old_client) == "PONG"
   end
 
+  test "topology-aware SDK interval schedules coalesce missed occurrences once", %{
+    client: old_client
+  } do
+    client = start_sdk_client("schedule-catchup")
+    suffix = unique("schedule-catchup")
+    schedule_id = "#{suffix}-schedule"
+    target_prefix = "#{suffix}-target"
+    now_ms = System.system_time(:millisecond)
+    due_at_ms = now_ms + 800
+    every_ms = 5
+    recovery_ms = due_at_ms + 10 * every_ms
+
+    assert {:ok, created} =
+             Flow.schedule_create(client, %{
+               id: schedule_id,
+               kind: "interval",
+               every_ms: every_ms,
+               start_at_ms: due_at_ms,
+               now_ms: now_ms,
+               catchup_policy: "fire_once",
+               target: %{id_prefix: target_prefix, type: "scheduled-integration"}
+             })
+
+    assert created["catchup_policy"] == "fire_once"
+
+    assert {:ok, fired} =
+             Flow.schedule_fire_due(client, %{
+               now_ms: recovery_ms,
+               worker: "#{suffix}-worker",
+               limit: 1
+             })
+
+    assert fired["claimed"] == 1
+    assert fired["fired"] == 1
+    assert fired["coalesced"] == 10
+    assert fired["errors"] == []
+
+    assert {:ok, schedule} = Flow.schedule_get(client, %{id: schedule_id})
+    assert schedule["fire_count"] == 1
+    assert schedule["coalesced_count"] == 10
+    assert schedule["last_coalesced_count"] == 10
+    assert schedule["last_catchup_at_ms"] == recovery_ms
+    assert schedule["next_run_at_ms"] == recovery_ms + every_ms
+
+    assert {:ok, immediate} =
+             Flow.schedule_fire_due(client, %{
+               now_ms: recovery_ms,
+               worker: "#{suffix}-worker",
+               limit: 1
+             })
+
+    assert immediate["claimed"] == 0
+    assert immediate["fired"] == 0
+    assert immediate["coalesced"] == 0
+
+    assert {:ok, "OK"} =
+             Flow.schedule_delete(client, %{id: schedule_id, now_ms: recovery_ms + 1})
+
+    assert FerricStore.ping(old_client) == "PONG"
+  end
+
   test "flow terminal helpers cover retry, fail, and cancel", %{client: client} do
     retry_type = unique("retry-type")
     retry_worker = unique("retry-worker")

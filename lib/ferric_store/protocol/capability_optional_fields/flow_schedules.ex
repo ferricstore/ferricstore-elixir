@@ -12,6 +12,7 @@ defmodule FerricStore.Protocol.CapabilityOptionalFields.FlowSchedules do
       "timezone",
       "now_ms",
       "overwrite",
+      "catchup_policy",
       "overlap_policy",
       "overlap_retry_ms",
       "max_fires",

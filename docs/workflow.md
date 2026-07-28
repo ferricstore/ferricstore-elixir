@@ -138,3 +138,72 @@ FerricStore.Flow.cancel(client, "flow-1",
   reason: "operator cancelled"
 )
 ```
+
+## Durable interval schedules
+
+Use the topology-aware `FerricStore.SDK.Flow` wrapper for native schedule
+commands. Interval schedules use bounded `fire_once` catch-up by default, and
+it is the only catch-up policy accepted for intervals. When due execution
+resumes at least one full interval late, FerricStore creates one recovery target
+instead of replaying every missed occurrence. Other schedule kinds reject a
+catch-up policy.
+
+```elixir
+now_ms = System.system_time(:millisecond)
+
+{:ok, schedule} =
+  FerricStore.SDK.Flow.schedule_create(client, %{
+    id: "hourly-billing",
+    kind: "interval",
+    every_ms: 60 * 60 * 1_000,
+    start_at_ms: now_ms + 60_000,
+    catchup_policy: "fire_once",
+    overlap_policy: "queue_after_previous",
+    target: %{id_prefix: "billing-run", type: "billing"}
+  })
+```
+
+`catchup_policy` and `overlap_policy` solve different problems:
+
+- `catchup_policy: "fire_once"` coalesces elapsed interval occurrences after
+  scheduler downtime or delayed polling.
+- `overlap_policy: "queue_after_previous"` holds at most one due occurrence
+  while the previous target remains active.
+
+The built-in server scheduler normally owns due execution. Call
+`schedule_fire_due/3` only for tests, administrative recovery, or a deployment
+that deliberately disables the built-in runner and supplies one custom runner.
+Such a runner must use a stable worker identity:
+
+```elixir
+{:ok, result} =
+  FerricStore.SDK.Flow.schedule_fire_due(client, %{
+    worker: "scheduler-a",
+    now_ms: System.system_time(:millisecond),
+    limit: 100
+  })
+
+result["fired"]
+result["coalesced"]
+```
+
+Each `errors` entry corresponds to a claimed schedule. If a later claim wave
+fails after earlier outcomes completed, `claim_error` reports that batch-level
+failure separately; it is absent when all claim waves succeed.
+
+The schedule returned by `schedule_create/3`, `schedule_get/3`, and
+`schedule_list/3` includes `catchup_policy`, cumulative `coalesced_count`,
+`last_catchup_at_ms`, and `last_coalesced_count`. `fire_count` counts targets
+actually created, not coalesced occurrences. Catch-up is constant-time even
+after long downtime.
+
+If persisted recurrence state cannot be planned, the schedule becomes
+`"failed"` with `end_reason: "planning_failed"`; `last_planning_error` contains
+the actionable parser or calendar error. No target is created for that failed
+occurrence. `schedule_delete/3` returns `{:ok, "OK"}`.
+
+Recurring targets reject a fixed `id`. Set `id_prefix` to choose their
+generated prefix, or omit it to use the schedule ID. A returned schedule may
+briefly have state `"running"` while the server owns a due-execution lease.
+Bounded catch-up is interval-only; overdue cron schedules advance one matching
+occurrence per successful automatic fire.
