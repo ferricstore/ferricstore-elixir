@@ -1206,6 +1206,14 @@ defmodule FerricStore.ClientIntegrationTest do
              })
 
     assert created["catchup_policy"] == "fire_once"
+    assert created["created_at_ms"] == now_ms
+    assert created["every_ms"] == every_ms
+    assert Map.has_key?(created, "cron")
+    assert created["cron"] == nil
+    assert Map.has_key?(created, "timezone")
+    assert created["timezone"] == nil
+    assert Map.has_key?(created, "overlap_retry_ms")
+    assert created["overlap_retry_ms"] == nil
 
     assert {:ok, fired} =
              Flow.schedule_fire_due(client, %{
@@ -1225,6 +1233,14 @@ defmodule FerricStore.ClientIntegrationTest do
     assert schedule["last_coalesced_count"] == 10
     assert schedule["last_catchup_at_ms"] == recovery_ms
     assert schedule["next_run_at_ms"] == recovery_ms + every_ms
+    assert schedule["created_at_ms"] == now_ms
+    assert schedule["every_ms"] == every_ms
+
+    assert Map.take(schedule, ["cron", "overlap_retry_ms", "timezone"]) == %{
+             "cron" => nil,
+             "overlap_retry_ms" => nil,
+             "timezone" => nil
+           }
 
     assert {:ok, immediate} =
              Flow.schedule_fire_due(client, %{

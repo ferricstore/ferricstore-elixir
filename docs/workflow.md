@@ -192,10 +192,13 @@ fails after earlier outcomes completed, `claim_error` reports that batch-level
 failure separately; it is absent when all claim waves succeed.
 
 The schedule returned by `schedule_create/3`, `schedule_get/3`, and
-`schedule_list/3` includes `catchup_policy`, cumulative `coalesced_count`,
-`last_catchup_at_ms`, and `last_coalesced_count`. `fire_count` counts targets
-actually created, not coalesced occurrences. Catch-up is constant-time even
-after long downtime.
+`schedule_list/3` includes the complete recurrence configuration:
+`created_at_ms`, `every_ms`, `cron`, `timezone`, `overlap_policy`, and
+`overlap_retry_ms`. It also includes `catchup_policy`, cumulative
+`coalesced_count`, `last_catchup_at_ms`, and `last_coalesced_count`.
+Non-applicable recurrence fields are `nil`, not omitted. `fire_count` counts
+targets actually created, not coalesced occurrences. Catch-up is constant-time
+even after long downtime.
 
 If persisted recurrence state cannot be planned, the schedule becomes
 `"failed"` with `end_reason: "planning_failed"`; `last_planning_error` contains
