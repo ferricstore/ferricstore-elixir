@@ -253,6 +253,39 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     refute benchmark =~ "atomicity: :per_shard"
   end
 
+  test "CI guards compact Flow query decode and validation allocations" do
+    benchmark =
+      File.read!(Path.expand("../../../bench/flow_query_client_benchmark.exs", __DIR__))
+
+    heap_benchmark =
+      File.read!(Path.expand("../../../bench/support/flow_query_heap_benchmark.exs", __DIR__))
+
+    assert benchmark =~ "full_decode"
+    assert benchmark =~ "projected_decode"
+    assert benchmark =~ "raw_validation"
+    assert benchmark =~ "max_full_decode_reductions"
+    assert benchmark =~ "max_count_decode_reductions"
+    assert heap_benchmark =~ "ResponseDecoderSpawnPolicy"
+
+    assert source_line_count("../../bench/flow_query_client_benchmark.exs") <= 170
+    assert source_line_count("../../bench/support/flow_query_benchmark_options.exs") <= 55
+    assert source_line_count("../../bench/support/flow_query_benchmark_payload.exs") <= 80
+    assert source_line_count("../../bench/support/flow_query_heap_benchmark.exs") <= 105
+
+    for workflow <- [
+          "../../../.github/workflows/ci.yml",
+          "../../../.github/workflows/release.yml"
+        ] do
+      workflow = workflow |> Path.expand(__DIR__) |> File.read!()
+
+      assert workflow =~ "mix run bench/flow_query_client_benchmark.exs"
+      assert workflow =~ "--max-full-decode-reductions 24000"
+      assert workflow =~ "--max-projected-decode-reductions 10000"
+      assert workflow =~ "--max-count-decode-reductions 1000"
+      assert workflow =~ "--max-raw-validation-reductions 300"
+    end
+  end
+
   test "CI exercises acknowledged connection responses through the KV benchmark" do
     benchmark = File.read!(Path.expand("../../../bench/kv_benchmark.exs", __DIR__))
     benchmark_docs = File.read!(Path.expand("../../../docs/benchmark.md", __DIR__))

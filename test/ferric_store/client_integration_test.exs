@@ -613,6 +613,24 @@ defmodule FerricStore.ClientIntegrationTest do
     assert projected_id == hd(ids)
     assert map_size(projected_record) == 3
 
+    assert_eventually(fn ->
+      records =
+        FerricStore.Flow.list(client,
+          type: type,
+          state: state,
+          partition_key: partition,
+          count: 3,
+          fields: [:run_id, :state, {:attribute, "customer"}]
+        )
+
+      assert length(records) == 3
+
+      assert Enum.all?(records, fn record ->
+               Map.keys(record) |> MapSet.new() == MapSet.new(~w(id state attributes)) and
+                 match?(%{"customer" => _customer}, record["attributes"])
+             end)
+    end)
+
     count_query =
       "FROM runs WHERE partition_key = @partition AND type = @type AND state = @state RETURN COUNT"
 

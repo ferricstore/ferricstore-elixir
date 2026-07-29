@@ -43,7 +43,14 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntimeTest do
     body = <<0::unsigned-16, Codec.encode_value("late")::binary>>
 
     assert {:ok, next_state} =
-             ConnectionResponseRuntime.finish(state, request_id, pending, 0, body)
+             ConnectionResponseRuntime.finish(
+               state,
+               request_id,
+               pending,
+               0,
+               body,
+               byte_size(body)
+             )
 
     assert_receive {:ferricstore_connection_response, _connection, ^tag, {:error, :timeout}}
     assert next_state.pending == %{}
@@ -87,7 +94,14 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntimeTest do
     {:reductions, before_finish} = Process.info(self(), :reductions)
 
     assert {:ok, decoding_state} =
-             ConnectionResponseRuntime.finish(state, request_id, pending, 0, body)
+             ConnectionResponseRuntime.finish(
+               state,
+               request_id,
+               pending,
+               0,
+               body,
+               byte_size(body)
+             )
 
     {:reductions, after_finish} = Process.info(self(), :reductions)
 
@@ -140,7 +154,14 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntimeTest do
     body = <<0::unsigned-16, Codec.encode_value("committed")::binary>>
 
     assert {:ok, decoding_state} =
-             ConnectionResponseRuntime.finish(state, request_id, pending, 0, body)
+             ConnectionResponseRuntime.finish(
+               state,
+               request_id,
+               pending,
+               0,
+               body,
+               byte_size(body)
+             )
 
     assert_receive decode_message
 

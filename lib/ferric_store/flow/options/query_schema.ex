@@ -3,6 +3,7 @@ defmodule FerricStore.Flow.Options.QuerySchema do
 
   @transport [:timeout, :call_timeout, :lane_id]
   @codec [:codec]
+  @projection [:fields]
   @ordered_collection ~w(partition_key count from_ms to_ms rev include_cold consistent_projection)a
 
   @schemas %{
@@ -10,7 +11,8 @@ defmodule FerricStore.Flow.Options.QuerySchema do
       {[], [:partition_key, :full, :payload, :payload_max_bytes, :values] ++ @codec ++ @transport},
     list:
       {[:type],
-       [:type, :state, :attributes, :return | @ordered_collection] ++ @codec ++ @transport},
+       [:type, :state, :attributes, :return | @ordered_collection] ++
+         @projection ++ @codec ++ @transport},
     history:
       {[],
        [
@@ -81,15 +83,21 @@ defmodule FerricStore.Flow.Options.QuerySchema do
          :consistent_projection,
          :attributes,
          :state_meta
-       ] ++ @codec ++ @transport},
-    terminals: {[:type], [:type, :state | @ordered_collection] ++ @codec ++ @transport},
-    failures: {[:type], [:type, :attributes | @ordered_collection] ++ @codec ++ @transport},
-    by_parent: {[], [:state, :attributes | @ordered_collection] ++ @codec ++ @transport},
-    by_root: {[], [:state, :attributes | @ordered_collection] ++ @codec ++ @transport},
-    by_correlation: {[], [:state, :attributes | @ordered_collection] ++ @codec ++ @transport},
+       ] ++ @projection ++ @codec ++ @transport},
+    terminals:
+      {[:type], [:type, :state | @ordered_collection] ++ @projection ++ @codec ++ @transport},
+    failures:
+      {[:type], [:type, :attributes | @ordered_collection] ++ @projection ++ @codec ++ @transport},
+    by_parent:
+      {[], [:state, :attributes | @ordered_collection] ++ @projection ++ @codec ++ @transport},
+    by_root:
+      {[], [:state, :attributes | @ordered_collection] ++ @projection ++ @codec ++ @transport},
+    by_correlation:
+      {[], [:state, :attributes | @ordered_collection] ++ @projection ++ @codec ++ @transport},
     stuck:
       {[:type, :partition_key],
-       [:type, :partition_key, :count, :older_than_ms, :now_ms] ++ @codec ++ @transport},
+       [:type, :partition_key, :count, :older_than_ms, :now_ms] ++
+         @projection ++ @codec ++ @transport},
     value_put:
       {[],
        [

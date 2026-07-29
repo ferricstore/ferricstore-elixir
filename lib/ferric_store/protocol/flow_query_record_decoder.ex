@@ -3,9 +3,10 @@ defmodule FerricStore.Protocol.FlowQueryRecordDecoder do
 
   import Bitwise
 
+  alias FerricStore.FlowQueryLimits
   alias FerricStore.Protocol.{DecodeBudget, ValueCodec}
 
-  @max_records 100
+  @max_records FlowQueryLimits.max_records()
   @record_field_mask (1 <<< 20) - 1
   @record_fields {
     "id",
@@ -52,7 +53,7 @@ defmodule FerricStore.Protocol.FlowQueryRecordDecoder do
   defp take_record(<<bitmap::32, rest::binary>>, budget)
        when band(bitmap, bnot(@record_field_mask)) == 0 do
     with {:ok, budget} <- DecodeBudget.consume(budget, population_count(bitmap)) do
-      take_record_fields(0, bitmap, rest, %{}, budget)
+      take_record_fields(0, bitmap, rest, [], budget)
     end
   end
 
@@ -61,19 +62,19 @@ defmodule FerricStore.Protocol.FlowQueryRecordDecoder do
 
   defp take_record(_bytes, _budget), do: {:error, :truncated_compact_flow_query_record}
 
-  defp take_record_fields(20, _bitmap, rest, record, budget),
-    do: {:ok, record, rest, budget}
+  defp take_record_fields(20, _bitmap, rest, fields, budget),
+    do: {:ok, :maps.from_list(fields), rest, budget}
 
-  defp take_record_fields(index, bitmap, bytes, record, budget) do
+  defp take_record_fields(index, bitmap, bytes, fields, budget) do
     if band(bitmap, 1 <<< index) == 0 do
-      take_record_fields(index + 1, bitmap, bytes, record, budget)
+      take_record_fields(index + 1, bitmap, bytes, fields, budget)
     else
       with {:ok, value, rest, budget} <- ValueCodec.decode_with_budget(bytes, budget) do
         take_record_fields(
           index + 1,
           bitmap,
           rest,
-          Map.put(record, elem(@record_fields, index), value),
+          [{elem(@record_fields, index), value} | fields],
           budget
         )
       end

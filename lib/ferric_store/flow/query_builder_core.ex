@@ -2,10 +2,11 @@ defmodule FerricStore.Flow.QueryBuilderCore do
   @moduledoc false
 
   alias FerricStore.Flow.Options.PreparedMap
-  alias FerricStore.Flow.{QueryBuilderMetadata, QueryBuilderWindow}
+  alias FerricStore.Flow.{QueryBuilderMetadata, QueryBuilderProjection, QueryBuilderWindow}
+  alias FerricStore.FlowQueryLimits
 
   @max_partition_bytes 65_535
-  @max_results 100
+  @max_results FlowQueryLimits.max_records()
 
   def base(opts, order_field \\ "updated_at_ms", default_reverse \\ true) do
     partition = Keyword.get(opts, :partition_key)
@@ -136,16 +137,17 @@ defmodule FerricStore.Flow.QueryBuilderCore do
      |> parameter(to_name, to_value)}
   end
 
-  def finish(%{predicates: predicates} = builder) when length(predicates) <= 12 do
-    query =
+  def finish(%{predicates: predicates} = builder, opts) when length(predicates) <= 12 do
+    base_query =
       "FROM runs WHERE " <>
         Enum.join(Enum.reverse(predicates), " AND ") <>
-        " ORDER BY #{builder.order_field} #{builder.direction} LIMIT #{builder.limit} RETURN RECORDS"
+        " ORDER BY #{builder.order_field} #{builder.direction} LIMIT #{builder.limit}"
 
-    {:ok, query, builder.params}
+    with {:ok, query} <- QueryBuilderProjection.append(base_query, opts),
+         do: {:ok, query, builder.params}
   end
 
-  def finish(_builder), do: {:error, {:invalid_flow_query, :too_many_predicates}}
+  def finish(_builder, _opts), do: {:error, {:invalid_flow_query, :too_many_predicates}}
 
   defp valid_partition(value)
        when is_binary(value) and value != "" and byte_size(value) <= @max_partition_bytes,

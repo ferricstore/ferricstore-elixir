@@ -39,6 +39,7 @@ FerricStore.Flow.list(client,
   type: "order",
   state: "queued",
   attributes: %{tenant: "acme"},
+  fields: [:run_id, :state, {:attribute, "tenant"}],
   count: 100
 )
 ```
@@ -46,6 +47,12 @@ FerricStore.Flow.list(client,
 Collection helpers default to newest-first order so queries use FerricStore's
 native descending updated-time indexes. Pass `rev: false` only when the oldest
 matching records must be returned first.
+
+Use `fields:` on collection helpers when the complete public record is not
+needed. The SDK validates at most 32 unique selectors and generates a sparse
+`RETURN RECORDS (...)` clause. Projection reduces encoding, network, retained
+result memory, and client decoding; it does not eliminate server-side scans or
+record hydration.
 
 Do not put large payloads in attributes. Use value refs for large data.
 

@@ -6,8 +6,8 @@ defmodule FerricStore.Flow.QueryProjection do
   already contain a `RETURN` clause.
   """
 
-  @max_query_bytes 16 * 1_024
-  @max_fields 32
+  @max_query_bytes FerricStore.FlowQueryLimits.max_query_bytes()
+  @max_fields FerricStore.FlowQueryLimits.max_projection_fields()
   @max_dynamic_name_bytes 64
 
   alias FerricStore.Flow.QueryProjection.Syntax
@@ -71,11 +71,14 @@ defmodule FerricStore.Flow.QueryProjection do
   defp validate_shape(shape) when shape in [:record, :records], do: :ok
   defp validate_shape(_shape), do: error(:invalid_shape)
 
-  defp validate_field_count(fields)
-       when is_list(fields) and length(fields) in 1..@max_fields,
-       do: :ok
+  defp validate_field_count(fields), do: validate_field_count(fields, 0)
 
-  defp validate_field_count(_fields), do: error(:field_limit)
+  defp validate_field_count([], count) when count > 0, do: :ok
+
+  defp validate_field_count([_field | fields], count) when count < @max_fields,
+    do: validate_field_count(fields, count + 1)
+
+  defp validate_field_count(_fields, _count), do: error(:field_limit)
 
   defp query_source(query) do
     query = QueryText.trim_leading(query)

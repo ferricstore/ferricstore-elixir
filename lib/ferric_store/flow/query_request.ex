@@ -3,12 +3,13 @@ defmodule FerricStore.Flow.QueryRequest do
 
   alias FerricStore.Flow.QueryResponse
   alias FerricStore.Flow.QueryText
+  alias FerricStore.FlowQueryLimits
   alias FerricStore.Protocol.Opcodes
   alias FerricStore.RequestContext
   alias FerricStore.SDK.Native.PreparedRequests
 
   @language_version "FQL1"
-  @max_query_bytes 16 * 1_024
+  @max_query_bytes FlowQueryLimits.max_query_bytes()
   @max_parameters 64
   @max_parameter_name_bytes 128
   @max_parameter_value_bytes 65_535

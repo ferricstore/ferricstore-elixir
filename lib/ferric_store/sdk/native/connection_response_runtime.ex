@@ -12,13 +12,13 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
     FlowControl
   }
 
-  @spec finish(map(), non_neg_integer(), map(), non_neg_integer(), binary()) ::
+  @spec finish(map(), non_neg_integer(), map(), non_neg_integer(), iodata(), non_neg_integer()) ::
           {:ok, map()} | {:stop, term(), map()}
-  def finish(state, request_id, pending, flags, body) do
+  def finish(state, request_id, pending, flags, body, body_bytes) do
     if ConnectionTimers.expired?(pending.deadline) do
       complete(state, request_id, pending, {:error, :timeout})
     else
-      begin_decode(state, request_id, pending, flags, body)
+      begin_decode(state, request_id, pending, flags, body, body_bytes)
     end
   end
 
@@ -43,7 +43,7 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
     end
   end
 
-  defp begin_decode(state, request_id, pending, flags, body) do
+  defp begin_decode(state, request_id, pending, flags, body, body_bytes) do
     decode_token = make_ref()
 
     worker =
@@ -56,6 +56,7 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
           opcode: pending.opcode,
           flags: flags,
           body: body,
+          body_bytes: body_bytes,
           max_response_bytes: state.max_response_bytes,
           response_context: pending.response_context
         }

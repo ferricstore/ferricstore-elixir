@@ -30,6 +30,14 @@ jobs:
           --max-encode-ms 10.0 --max-encode-reductions 100000
           --max-mget-ms 20.0 --max-mget-reductions 70000
           --max-mset-ms 20.0 --max-mset-reductions 250000
+      - name: Offline Flow query allocation gate
+        run: >-
+          mix run bench/flow_query_client_benchmark.exs
+          --iterations 500 --records 100 --heap-samples 0
+          --max-full-decode-reductions 24000
+          --max-projected-decode-reductions 10000
+          --max-count-decode-reductions 1000
+          --max-raw-validation-reductions 300
       - run: mix hex.build
 
   integration:

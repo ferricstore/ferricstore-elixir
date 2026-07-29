@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add bounded `fields:` projections to every FQL-backed Flow collection helper
+  while retaining complete records when the option is omitted.
+- Build compact Flow query records once and validate typed record lists in one
+  bounded traversal without copying raw convenience results.
+- Size-gate Flow query decoder heap preallocation, leaving tiny and non-query
+  responses on the default heap.
+- Add CI and release reduction budgets for complete, projected, count, and raw
+  Flow query client paths.
+
 ## 0.11.4 - 2026-07-28
 
 - Document the complete durable-schedule recurrence response, including

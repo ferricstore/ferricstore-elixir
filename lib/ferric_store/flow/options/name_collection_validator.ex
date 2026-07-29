@@ -1,8 +1,7 @@
 defmodule FerricStore.Flow.Options.NameCollectionValidator do
   @moduledoc false
 
-  alias FerricStore.{DeadlineBudget, RequestLimits}
-  alias FerricStore.Flow.Options.CollectionScan
+  alias FerricStore.{BoundedListValidator, DeadlineBudget, RequestLimits}
 
   @options %{
     attributes_delete: [:cancel, :complete, :complete_many, :fail, :retry, :transition],
@@ -24,7 +23,7 @@ defmodule FerricStore.Flow.Options.NameCollectionValidator do
   defp validate_option({:ok, nil}, _operation, _option, _budget), do: {:cont, :ok}
 
   defp validate_option({:ok, names}, operation, option, budget) do
-    case CollectionScan.validate(names, @max_items, &name?/1, budget) do
+    case BoundedListValidator.validate(names, @max_items, &name?/1, budget) do
       {:ok, _count} -> {:cont, :ok}
       {:error, :timeout} -> {:halt, {:error, :timeout}}
       {:error, :too_large} -> {:halt, invalid(operation, option, {:maximum_items, @max_items})}

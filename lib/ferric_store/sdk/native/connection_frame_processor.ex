@@ -113,7 +113,8 @@ defmodule FerricStore.SDK.Native.ConnectionFrameProcessor do
           request_id,
           pending,
           logical_flags,
-          logical_body
+          logical_body,
+          pending.chunk_bytes + byte_size(body)
         )
     end
   end

@@ -458,7 +458,7 @@ defmodule FerricStore.Architecture.RuntimeFacadesTest do
 
     for {path, limit} <- [
           {"../../lib/ferric_store/flow/options/collection_validator.ex", 25},
-          {"../../lib/ferric_store/flow/options/collection_scan.ex", 45},
+          {"../../lib/ferric_store/bounded_list_validator.ex", 55},
           {"../../lib/ferric_store/flow/options/claim_collection_validator.ex", 85},
           {"../../lib/ferric_store/flow/options/name_collection_validator.ex", 45},
           {"../../lib/ferric_store/flow/options/query_collection_validator.ex", 55}
@@ -545,7 +545,9 @@ defmodule FerricStore.Architecture.RuntimeFacadesTest do
           {FerricStore.Flow.ClaimResponseDecoder, FerricStore.Flow.ClaimNormalizer, :normalize},
           {FerricStore.Flow.ClaimResponseDecoder, FerricStore.Flow.ResponseRecords,
            :decode_record},
-          {FerricStore.Flow.ClaimResponseDecoder, FerricStore.Flow.ResponseResultList, :map}
+          {FerricStore.Flow.ClaimResponseDecoder, FerricStore.Flow.ResponseResultList, :map},
+          {FerricStore.Flow.RecordResponseDecoder, FerricStore.BoundedListValidator, :validate},
+          {FerricStore.Flow.QueryResponse.Result, FerricStore.BoundedListValidator, :validate}
         ] do
       assert Enum.any?(calls, fn call ->
                call.caller_module == caller and call.callee_module == callee and
@@ -592,6 +594,9 @@ defmodule FerricStore.Architecture.RuntimeFacadesTest do
 
     assert source_line_count("../../lib/ferric_store/sdk/native/connection_frame_processor.ex") <=
              210
+
+    assert source_line_count("../../lib/ferric_store/sdk/native/response_decoder_spawn_policy.ex") <=
+             20
 
     assert source_line_count("../../lib/ferric_store/sdk/native/connection_drain.ex") <= 50
     assert source_line_count("../../lib/ferric_store/sdk/native/connection_request.ex") <= 170

@@ -28,10 +28,37 @@ instrumentation. The MSET workload uses unrelated keys and therefore exercises
 the canonical per-slot grouping policy, including the cost of many small slot
 groups; it does not use the removed shard-level atomicity mode.
 
+### Flow query client allocations
+
+Use the offline Flow query benchmark after changing FQL result decoding,
+projection handling, response-worker heaps, or collection response validation:
+
+```bash
+mix run bench/flow_query_client_benchmark.exs \
+  --iterations 1000 \
+  --records 100 \
+  --heap-samples 50
+```
+
+It compares complete 18-field records, sparse 3-field records, count results,
+and raw convenience-list validation. It reports wire bytes, shared and flat
+term words, latency, reductions, garbage collections, and response-worker
+memory. CI and release use deterministic reduction ceilings and disable the
+timing-based heap samples:
+
+```bash
+mix run bench/flow_query_client_benchmark.exs \
+  --iterations 500 --records 100 --heap-samples 0 \
+  --max-full-decode-reductions 24000 \
+  --max-projected-decode-reductions 10000 \
+  --max-count-decode-reductions 1000 \
+  --max-raw-validation-reductions 300
+```
+
 Environment:
 
 - Client: local macOS
-- Server: immutable FerricStore 0.11.3 multi-arch release image
+- Server: immutable FerricStore 0.11.4 multi-arch release image
 - Protocol: native `ferric://`
 - Server URL: `ferric://127.0.0.1:6398`
 - Protected mode disabled for local benchmark only
@@ -44,7 +71,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6398 \
   -p 6398:6388 \
-  ghcr.io/ferricstore/ferricstore:0.11.3@sha256:c2eef2036f45e7916359edfb92a50e3f36b8ea3c7a4067f22581305f5253c217
+  ghcr.io/ferricstore/ferricstore:0.11.4@sha256:ee49d39e3b15cd6298537a88818647e71bcfc7571921e88bcf3a201311c690fc
 ```
 
 ## KV throughput

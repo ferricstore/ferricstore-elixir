@@ -2,20 +2,25 @@ defmodule FerricStore.SDK.Native.ConnectionResponseDecoder do
   @moduledoc false
 
   alias FerricStore.{FailureFormatter, SDK.Native.Codec}
-  alias FerricStore.SDK.Native.FlowControl
+  alias FerricStore.SDK.Native.{FlowControl, ResponseDecoderSpawnPolicy}
 
   @message_tag :ferricstore_response_decoded
   @delivery_tag :ferricstore_deliver_decoded_response
 
   @spec start(pid(), non_neg_integer(), reference(), map()) :: pid()
   def start(owner, request_id, decode_token, response) do
-    spawn_link(fn ->
-      owner_monitor = Process.monitor(owner)
-      result = decode(response)
-      metadata = metadata(response.opcode, response.target, result)
-      send(owner, {@message_tag, self(), request_id, decode_token, metadata})
-      await_delivery(owner, owner_monitor, request_id, decode_token, response.target, result)
-    end)
+    options = ResponseDecoderSpawnPolicy.options(response.opcode, Map.get(response, :body_bytes))
+
+    :erlang.spawn_opt(
+      fn ->
+        owner_monitor = Process.monitor(owner)
+        result = decode(response)
+        metadata = metadata(response.opcode, response.target, result)
+        send(owner, {@message_tag, self(), request_id, decode_token, metadata})
+        await_delivery(owner, owner_monitor, request_id, decode_token, response.target, result)
+      end,
+      [:link | options]
+    )
   end
 
   @spec deliver(pid(), non_neg_integer(), reference()) :: :ok

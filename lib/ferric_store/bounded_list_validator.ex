@@ -1,13 +1,22 @@
-defmodule FerricStore.Flow.Options.CollectionScan do
+defmodule FerricStore.BoundedListValidator do
   @moduledoc false
 
   alias FerricStore.DeadlineBudget
 
   @deadline_check_interval 256
 
-  @spec validate(term(), non_neg_integer(), (term() -> boolean()), DeadlineBudget.t() | nil) ::
-          {:ok, non_neg_integer()}
-          | {:error, :expected_list | :invalid_item | :too_large | :timeout}
+  @type reason :: :expected_list | :invalid_item | :too_large | :timeout
+
+  @spec validate(term(), non_neg_integer(), (term() -> boolean())) ::
+          {:ok, non_neg_integer()} | {:error, reason()}
+  def validate(items, limit, predicate), do: validate(items, limit, predicate, nil)
+
+  @spec validate(
+          term(),
+          non_neg_integer(),
+          (term() -> boolean()),
+          DeadlineBudget.t() | nil
+        ) :: {:ok, non_neg_integer()} | {:error, reason()}
   def validate(items, limit, predicate, budget)
       when is_integer(limit) and limit >= 0 and is_function(predicate, 1) do
     with :ok <- active(budget), do: scan(items, limit, predicate, budget, 0, 0)
@@ -33,8 +42,7 @@ defmodule FerricStore.Flow.Options.CollectionScan do
   end
 
   defp scan(_value, _limit, _predicate, budget, _count, _until_check) do
-    with :ok <- active(budget),
-         do: {:error, :expected_list}
+    with :ok <- active(budget), do: {:error, :expected_list}
   end
 
   defp active(nil), do: :ok

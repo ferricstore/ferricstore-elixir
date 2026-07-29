@@ -15,7 +15,7 @@ defmodule FerricStore.Flow.QueryBuilderListSearch do
          {:ok, builder} <- QueryBuilderCore.add_list_state(builder, Keyword.get(opts, :state)),
          {:ok, builder} <- QueryBuilderCore.add_attributes(builder, attributes),
          {:ok, builder} <- QueryBuilderCore.add_window(builder, opts),
-         do: QueryBuilderCore.finish(builder)
+         do: QueryBuilderCore.finish(builder, opts)
   end
 
   def search(opts) do
@@ -31,7 +31,7 @@ defmodule FerricStore.Flow.QueryBuilderListSearch do
          {:ok, builder} <- QueryBuilderCore.add_attributes(builder, attributes),
          {:ok, builder} <- QueryBuilderCore.add_state_meta(builder, state_meta),
          {:ok, builder} <- QueryBuilderCore.add_window(builder, opts),
-         do: QueryBuilderCore.finish(builder)
+         do: QueryBuilderCore.finish(builder, opts)
   end
 
   defp require_search_predicate(attributes, state_meta)

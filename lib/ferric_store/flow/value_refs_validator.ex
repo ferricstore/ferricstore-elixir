@@ -1,15 +1,14 @@
 defmodule FerricStore.Flow.ValueRefsValidator do
   @moduledoc false
 
-  alias FerricStore.{DeadlineBudget, RequestLimits, RouteKey}
-  alias FerricStore.Flow.Options.CollectionScan
+  alias FerricStore.{BoundedListValidator, DeadlineBudget, RequestLimits, RouteKey}
 
   @max_items RequestLimits.max_batch_items()
   @max_bytes RouteKey.max_bytes()
 
   @spec validate(term(), DeadlineBudget.t()) :: :ok | {:error, term()}
   def validate(refs, %DeadlineBudget{} = budget) do
-    case CollectionScan.validate(refs, @max_items, &valid_ref?/1, budget) do
+    case BoundedListValidator.validate(refs, @max_items, &valid_ref?/1, budget) do
       {:ok, _count} -> :ok
       {:error, :timeout} = error -> error
       {:error, :too_large} -> batch_too_large()

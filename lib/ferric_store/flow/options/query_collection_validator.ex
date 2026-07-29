@@ -1,8 +1,7 @@
 defmodule FerricStore.Flow.Options.QueryCollectionValidator do
   @moduledoc false
 
-  alias FerricStore.{DeadlineBudget, RequestLimits}
-  alias FerricStore.Flow.Options.CollectionScan
+  alias FerricStore.{BoundedListValidator, DeadlineBudget, RequestLimits}
 
   @max_items RequestLimits.max_batch_items()
 
@@ -39,7 +38,7 @@ defmodule FerricStore.Flow.Options.QueryCollectionValidator do
   end
 
   defp list_result(values, operation, option, expectation, budget) do
-    case CollectionScan.validate(values, @max_items, &nonempty_binary?/1, budget) do
+    case BoundedListValidator.validate(values, @max_items, &nonempty_binary?/1, budget) do
       {:ok, _count} -> :ok
       {:error, :timeout} = error -> error
       {:error, :too_large} -> invalid(operation, option, {:maximum_items, @max_items})

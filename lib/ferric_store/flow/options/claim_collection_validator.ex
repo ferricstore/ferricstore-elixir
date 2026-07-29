@@ -1,8 +1,7 @@
 defmodule FerricStore.Flow.Options.ClaimCollectionValidator do
   @moduledoc false
 
-  alias FerricStore.DeadlineBudget
-  alias FerricStore.Flow.Options.CollectionScan
+  alias FerricStore.{BoundedListValidator, DeadlineBudget}
 
   @max_filter_items 64
 
@@ -25,7 +24,7 @@ defmodule FerricStore.Flow.Options.ClaimCollectionValidator do
   end
 
   defp validate_state_list(states, budget) do
-    case CollectionScan.validate(states, @max_filter_items, &state?/1, budget) do
+    case BoundedListValidator.validate(states, @max_filter_items, &state?/1, budget) do
       {:ok, _count} -> normalized_state_count(states)
       {:error, :too_large} -> invalid(:states, {:maximum_items, @max_filter_items})
       {:error, :timeout} = error -> error
@@ -55,7 +54,7 @@ defmodule FerricStore.Flow.Options.ClaimCollectionValidator do
   end
 
   defp validate_partition_list(partitions, budget) do
-    case CollectionScan.validate(partitions, @max_filter_items, &nonempty_binary?/1, budget) do
+    case BoundedListValidator.validate(partitions, @max_filter_items, &nonempty_binary?/1, budget) do
       {:ok, _count} -> {:ok, max(partitions |> MapSet.new() |> MapSet.size(), 1)}
       {:error, :too_large} -> invalid(:partition_keys, {:maximum_items, @max_filter_items})
       {:error, :timeout} = error -> error

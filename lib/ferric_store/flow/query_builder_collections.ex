@@ -16,7 +16,7 @@ defmodule FerricStore.Flow.QueryBuilderCollections do
          {:ok, builder} <-
            QueryBuilderCore.add_terminal_state(builder, Keyword.get(opts, :state)),
          {:ok, builder} <- QueryBuilderCore.add_window(builder, opts),
-         do: QueryBuilderCore.finish(builder)
+         do: QueryBuilderCore.finish(builder, opts)
   end
 
   def failures(opts) do
@@ -29,7 +29,7 @@ defmodule FerricStore.Flow.QueryBuilderCollections do
          {:ok, builder} <- QueryBuilderCore.equality(builder, "state", "state", "failed"),
          {:ok, builder} <- QueryBuilderCore.add_attributes(builder, attributes),
          {:ok, builder} <- QueryBuilderCore.add_window(builder, opts),
-         do: QueryBuilderCore.finish(builder)
+         do: QueryBuilderCore.finish(builder, opts)
   end
 
   def lineage(kind, id, opts) when kind in [:parent, :root, :correlation] do
@@ -46,7 +46,7 @@ defmodule FerricStore.Flow.QueryBuilderCollections do
          {:ok, builder} <-
            QueryBuilderCore.add_optional_state(builder, Keyword.get(opts, :state)),
          {:ok, builder} <- QueryBuilderCore.add_window(builder, opts),
-         do: QueryBuilderCore.finish(builder)
+         do: QueryBuilderCore.finish(builder, opts)
   end
 
   def stuck(opts) do
@@ -68,7 +68,7 @@ defmodule FerricStore.Flow.QueryBuilderCollections do
              "lease_to_ms",
              now_ms - older_than_ms
            ),
-         do: QueryBuilderCore.finish(builder)
+         do: QueryBuilderCore.finish(builder, opts)
   end
 
   defp require_failure_source("any", attributes) when map_size(attributes) == 0,

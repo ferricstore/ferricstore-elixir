@@ -36,13 +36,20 @@ mix credo --strict
 mix test --cover --exclude integration
 mix run bench/sdk_hot_path_benchmark.exs \
   --iterations 1 --frames 1000 --packet-bytes 17 --keys 1000
+mix run bench/flow_query_client_benchmark.exs \
+  --iterations 500 --records 100 --heap-samples 0 \
+  --max-full-decode-reductions 24000 \
+  --max-projected-decode-reductions 10000 \
+  --max-count-decode-reductions 1000 \
+  --max-raw-validation-reductions 300
 mix hex.build
 scripts/test_integration.sh
 ```
 
-CI and release validation additionally run the acknowledged response benchmark
-from `docs/benchmark.md` against that same pinned server. Its throughput floor
-turns response-delivery performance into a required gate.
+CI and release validation run both the offline Flow query allocation gate and
+the acknowledged response benchmark from `docs/benchmark.md`. The latter runs
+against the pinned server, and its throughput floor turns response-delivery
+performance into a required gate.
 
 The coverage gate starts at 70% and is a ratchet: new code must not lower it.
 Only generated `Inspect` protocol implementations are excluded from the report.

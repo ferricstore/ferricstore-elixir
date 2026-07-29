@@ -1,12 +1,14 @@
 defmodule FerricStore.Flow.QueryResponse.Result do
   @moduledoc false
 
+  alias FerricStore.{BoundedListValidator, FlowQueryLimits}
   alias FerricStore.Flow.QueryResponse.MetricsValidation
   alias FerricStore.Flow.QueryResponse.Validation, as: V
   alias FerricStore.Flow.QueryResult
   alias FerricStore.Types
 
   @contract "ferric.flow.query.result/v1"
+  @max_records FlowQueryLimits.max_records()
 
   @spec decode(term()) :: {:ok, QueryResult.t()} | {:error, term()}
   def decode(value) when is_map(value) do
@@ -30,10 +32,9 @@ defmodule FerricStore.Flow.QueryResponse.Result do
   defp records(value, quality, usage) do
     records = Types.get(value, "records")
 
-    with true <- (is_list(records) and length(records) <= 100) || {:error, :invalid_records},
-         true <- Enum.all?(records, &is_map/1) || {:error, :invalid_records},
+    with {:ok, count} <- validate_records(records),
          {:ok, page} <- V.page(Types.get(value, "page")),
-         :ok <- V.equal_count(usage.result_records, length(records), :records),
+         :ok <- V.equal_count(usage.result_records, count, :records),
          :ok <- V.not_greater(usage.result_records, usage.scanned_entries, :records) do
       {:ok,
        %QueryResult{
@@ -47,6 +48,13 @@ defmodule FerricStore.Flow.QueryResponse.Result do
        }}
     else
       {:error, reason} -> V.invalid(:records, reason)
+    end
+  end
+
+  defp validate_records(records) do
+    case BoundedListValidator.validate(records, @max_records, &is_map/1) do
+      {:ok, count} -> {:ok, count}
+      {:error, _reason} -> {:error, :invalid_records}
     end
   end
 

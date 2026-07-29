@@ -120,6 +120,24 @@ hand-quoting metadata names:
 %FerricStore.Flow.QueryResult{} = FerricStore.Flow.query(client, projected, params)
 ```
 
+Collection helpers accept the same run selectors through `fields:` and compile
+the projection into FQL before transport:
+
+```elixir
+records =
+  FerricStore.Flow.list(client,
+    type: "invoice",
+    state: "queued",
+    partition_key: "tenant-a",
+    fields: [:run_id, :state, {:attribute, "customer"}]
+  )
+```
+
+`fields:` is supported by `list`, `search`, `terminals`, `failures`, `stuck`,
+`by_parent`, `by_root`, and `by_correlation`. Omitting it returns complete public
+records. An explicit projection must contain 1 to 32 unique, source-valid
+selectors.
+
 ### 5. Create a durable queue item
 
 ```elixir

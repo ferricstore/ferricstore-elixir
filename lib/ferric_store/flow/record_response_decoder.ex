@@ -1,8 +1,10 @@
 defmodule FerricStore.Flow.RecordResponseDecoder do
   @moduledoc false
 
-  alias FerricStore.{DeadlineBudget, Result}
-  alias FerricStore.Flow.{ResponseRecords, ResponseResultList}
+  alias FerricStore.{BoundedListValidator, DeadlineBudget, FlowQueryLimits, Result}
+  alias FerricStore.Flow.ResponseRecords
+
+  @max_records FlowQueryLimits.max_records()
 
   @spec decode_record_raw(term(), atom(), DeadlineBudget.t()) :: term()
   def decode_record_raw(value, operation, %DeadlineBudget{} = budget) do
@@ -22,11 +24,11 @@ defmodule FerricStore.Flow.RecordResponseDecoder do
 
   @spec decode_list_raw(term(), atom(), DeadlineBudget.t()) :: term()
   def decode_list_raw(values, operation, %DeadlineBudget{} = budget) when is_list(values) do
-    case ResponseResultList.map(values, budget, &record_result/1) do
-      {:ok, records} -> records
+    case BoundedListValidator.validate(values, @max_records, &is_map/1, budget) do
+      {:ok, _count} -> values
       {:error, :timeout} -> Result.error(:timeout)
-      {:error, :expected_record_map} -> invalid(operation, :expected_record_map)
-      {:error, :improper_list} -> invalid(operation, :expected_record_list)
+      {:error, :invalid_item} -> invalid(operation, :expected_record_map)
+      {:error, _reason} -> invalid(operation, :expected_record_list)
     end
   end
 
@@ -54,9 +56,6 @@ defmodule FerricStore.Flow.RecordResponseDecoder do
 
   defp decode_list_items(_improper, operation, _codec, _decoded),
     do: invalid(operation, :expected_record_list)
-
-  defp record_result(record) when is_map(record), do: {:ok, record}
-  defp record_result(_record), do: {:error, :expected_record_map}
 
   defp invalid(operation, reason),
     do: Result.error({:invalid_flow_response, %{operation: operation, reason: reason}})
