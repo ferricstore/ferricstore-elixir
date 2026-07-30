@@ -84,6 +84,35 @@ defmodule FerricStore.ClientIntegrationTest do
     assert_sdk_opcode_table_matches(options)
   end
 
+  test "compact Stream pipelines span multiple topics", %{client: client} do
+    prefix = "elixir-sdk:stream-pipeline:#{unique("live")}:"
+    first = "#{prefix}{a}:first"
+    second = "#{prefix}{b}:second"
+
+    on_exit(fn ->
+      FerricStore.command(client, "DEL", [first])
+      FerricStore.command(client, "DEL", [second])
+    end)
+
+    assert results =
+             FerricStore.pipeline(
+               client,
+               [
+                 ["XADD", first, "*", "field", "one"],
+                 ["XADD", second, "*", "field", "two"],
+                 ["XADD", first, "*", "field", "three"]
+               ],
+               return: :compact
+             )
+
+    assert length(results) == 3
+
+    stream_ids = Enum.map(results, &stream_pipeline_id!/1)
+    assert Enum.all?(stream_ids, &Regex.match?(~r/^\d+-\d+$/, &1))
+    assert 2 = FerricStore.command(client, "XLEN", [first])
+    assert 1 = FerricStore.command(client, "XLEN", [second])
+  end
+
   test "topology-aware SDK KV helpers cover the Docker key command surface" do
     client = start_sdk_client("kv")
     tag = unique("sdk-kv")
@@ -1587,6 +1616,13 @@ defmodule FerricStore.ClientIntegrationTest do
   defp extract_ref(%{"ref" => ref}), do: ref
   defp extract_ref(%{ref: ref}), do: ref
   defp extract_ref(ref) when is_binary(ref), do: ref
+
+  defp stream_pipeline_id!(id) when is_binary(id), do: id
+  defp stream_pipeline_id!(["ok", id]) when is_binary(id), do: id
+
+  defp stream_pipeline_id!(other) do
+    flunk("expected compact XADD result, got #{inspect(other)}")
+  end
 
   defp unique(prefix) do
     "elixir-sdk-#{prefix}-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive, :monotonic])}"

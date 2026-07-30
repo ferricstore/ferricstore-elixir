@@ -39,6 +39,9 @@ defmodule FerricStore.SDK.Native.FlowControl do
     flow_control = map_option(capabilities, :flow_control, %{})
     limits = map_option(capabilities, :limits, %{})
 
+    pipeline_modes =
+      capabilities |> map_option(:pipeline, %{}) |> map_option(:modes, %{})
+
     max_response_bytes =
       cap_positive_limit(
         ConnectionOptions.effective(state.endpoint).max_response_bytes,
@@ -70,7 +73,12 @@ defmodule FerricStore.SDK.Native.FlowControl do
           ),
         max_pipeline_commands: pipeline_limit(map_option(limits, :max_pipeline_commands)),
         max_response_bytes: max_response_bytes,
-        encoder: ConnectionEncoder.put_response_codecs(state.encoder, compact_response_codecs),
+        encoder:
+          state.encoder
+          |> ConnectionEncoder.put_response_codecs(compact_response_codecs)
+          |> ConnectionEncoder.put_stream_xadd_mode(
+            map_option(pipeline_modes, :stream_xadd_auto) == 34
+          ),
         server_frame_assembler:
           Map.put(state.server_frame_assembler, :max_frame_bytes, max_response_bytes)
     }
