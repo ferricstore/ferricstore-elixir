@@ -3,7 +3,6 @@ defmodule FerricStore.SDK.Native.ConnectionEncodingWorker do
 
   alias FerricStore.{FailureFormatter, Protocol}
   alias FerricStore.Protocol.ResponsePlan
-
   alias FerricStore.SDK.Native.{ConnectionEncodingTask, ConnectionTimers, PipelinePreparer}
   alias FerricStore.Transport.{RequestEncoder, SessionPolicy, Socket}
 
@@ -64,8 +63,7 @@ defmodule FerricStore.SDK.Native.ConnectionEncodingWorker do
 
   defp encode(job) do
     with {:ok, remaining} <- remaining(job),
-         {:ok, payload} <-
-           PipelinePreparer.prepare(job.opcode, job.payload, job.max_pipeline_commands),
+         {:ok, payload} <- PipelinePreparer.prepare(job.opcode, job.payload, job.pipeline_policy),
          response_context = %{
            response_plan: ResponsePlan.build(job.opcode, payload),
            compact_codec: job.compact_response_codec

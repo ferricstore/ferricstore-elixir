@@ -2,9 +2,9 @@
 
 Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
 
-Status: public beta. SDK `0.11.4` requires FerricStore `~> 0.11.4`
-because schedule responses now use the complete recurrence contract. Native
-wire framing remains protocol v1. APIs may change before `1.0`, but the SDK is
+Status: public beta. SDK `0.11.5` requires FerricStore `~> 0.11.4` and
+negotiates compact Stream mode 34 with FerricStore 0.11.5. Native wire framing
+and the generic compatibility path remain protocol v1. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
 
@@ -30,7 +30,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.11.4"}
+    {:ferricstore_sdk, "~> 0.11.5"}
   ]
 end
 ```

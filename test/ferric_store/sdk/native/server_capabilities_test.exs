@@ -29,7 +29,10 @@ defmodule FerricStore.SDK.Native.ServerCapabilitiesTest do
 
     startup =
       NativeServer.startup_payload(%{
-        "capabilities" => %{"limits" => %{"max_response_bytes" => 123_456}}
+        "capabilities" => %{
+          "limits" => %{"max_response_bytes" => 123_456},
+          "pipeline" => %{"modes" => %{"stream_xadd_auto" => 34}}
+        }
       })
 
     negotiated = FlowControl.apply_server_capabilities(state, startup)
@@ -37,6 +40,7 @@ defmodule FerricStore.SDK.Native.ServerCapabilitiesTest do
     assert negotiated.max_response_bytes == 123_456
     assert negotiated.server_frame_assembler.max_frame_bytes == 123_456
     assert negotiated.encoder.compact_response_codecs[Opcodes.get()] == "kv_get_v1"
+    assert negotiated.encoder.compact_stream_xadd
 
     assert negotiated.encoder.compact_response_codecs[Opcodes.flow_value_mget()] ==
              "kv_mget_v1"
