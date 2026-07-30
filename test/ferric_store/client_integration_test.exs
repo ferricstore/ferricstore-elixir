@@ -106,7 +106,9 @@ defmodule FerricStore.ClientIntegrationTest do
              )
 
     assert length(results) == 3
-    assert Enum.all?(results, &(is_binary(&1) and &1 != ""))
+
+    stream_ids = Enum.map(results, &stream_pipeline_id!/1)
+    assert Enum.all?(stream_ids, &Regex.match?(~r/^\d+-\d+$/, &1))
     assert 2 = FerricStore.command(client, "XLEN", [first])
     assert 1 = FerricStore.command(client, "XLEN", [second])
   end
@@ -1614,6 +1616,13 @@ defmodule FerricStore.ClientIntegrationTest do
   defp extract_ref(%{"ref" => ref}), do: ref
   defp extract_ref(%{ref: ref}), do: ref
   defp extract_ref(ref) when is_binary(ref), do: ref
+
+  defp stream_pipeline_id!(id) when is_binary(id), do: id
+  defp stream_pipeline_id!(["ok", id]) when is_binary(id), do: id
+
+  defp stream_pipeline_id!(other) do
+    flunk("expected compact XADD result, got #{inspect(other)}")
+  end
 
   defp unique(prefix) do
     "elixir-sdk-#{prefix}-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive, :monotonic])}"
