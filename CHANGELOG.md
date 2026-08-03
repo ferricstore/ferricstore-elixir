@@ -2,13 +2,17 @@
 
 ## Unreleased
 
-## 0.11.5 - 2026-07-30
+## 0.11.5 - 2026-08-03
 
 - Negotiate FerricStore 0.11.5's compact Stream producer capability and encode
   homogeneous auto-ID `XADD` pipelines with mode 34 when callers request the
   existing compact return contract. Default maps, pair returns, request
   contexts, legacy servers, and unsupported XADD grammar retain the generic
   pipeline path.
+- Negotiate compact Pub/Sub mode 35 and encode homogeneous `PUBLISH channel
+  message` pipelines with the same compact-return opt-in. Legacy servers,
+  default return shapes, request contexts, and unsupported command grammar
+  retain the generic native pipeline path.
 - Retain FerricStore `~> 0.11.4` compatibility and native wire protocol v1.
 
 - Add bounded `fields:` projections to every FQL-backed Flow collection helper

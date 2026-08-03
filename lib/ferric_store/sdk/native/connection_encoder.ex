@@ -6,12 +6,19 @@ defmodule FerricStore.SDK.Native.ConnectionEncoder do
   alias FerricStore.SDK.Native.ConnectionEncodingWorker
 
   @enforce_keys [:control, :data]
-  defstruct [:control, :data, compact_response_codecs: %{}, compact_stream_xadd: false]
+  defstruct [
+    :control,
+    :data,
+    compact_response_codecs: %{},
+    compact_pubsub_publish: false,
+    compact_stream_xadd: false
+  ]
 
   @type t :: %__MODULE__{
           control: pid(),
           data: pid(),
           compact_response_codecs: %{optional(non_neg_integer()) => binary()},
+          compact_pubsub_publish: boolean(),
           compact_stream_xadd: boolean()
         }
 
@@ -42,7 +49,9 @@ defmodule FerricStore.SDK.Native.ConnectionEncoder do
       lane_id: lane_id,
       timeout: timeout,
       deadline: deadline,
-      pipeline_policy: {state.max_pipeline_commands, state.encoder.compact_stream_xadd},
+      pipeline_policy:
+        {state.max_pipeline_commands, state.encoder.compact_stream_xadd,
+         state.encoder.compact_pubsub_publish},
       max_request_bytes: state.max_request_bytes,
       compact_response_codec: Map.get(state.encoder.compact_response_codecs, opcode),
       transport: state.transport,
@@ -67,6 +76,10 @@ defmodule FerricStore.SDK.Native.ConnectionEncoder do
   @spec put_stream_xadd_mode(t(), boolean()) :: t()
   def put_stream_xadd_mode(%__MODULE__{} = encoder, enabled) when is_boolean(enabled),
     do: %{encoder | compact_stream_xadd: enabled}
+
+  @spec put_pubsub_publish_mode(t(), boolean()) :: t()
+  def put_pubsub_publish_mode(%__MODULE__{} = encoder, enabled) when is_boolean(enabled),
+    do: %{encoder | compact_pubsub_publish: enabled}
 
   @spec authorize_send(pid(), non_neg_integer(), reference()) :: :ok
   def authorize_send(worker, request_id, encode_token)

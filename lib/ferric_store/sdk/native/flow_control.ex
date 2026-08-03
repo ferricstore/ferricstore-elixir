@@ -78,6 +78,9 @@ defmodule FerricStore.SDK.Native.FlowControl do
           |> ConnectionEncoder.put_response_codecs(compact_response_codecs)
           |> ConnectionEncoder.put_stream_xadd_mode(
             map_option(pipeline_modes, :stream_xadd_auto) == 34
+          )
+          |> ConnectionEncoder.put_pubsub_publish_mode(
+            map_option(pipeline_modes, :pubsub_publish) == 35
           ),
         server_frame_assembler:
           Map.put(state.server_frame_assembler, :max_frame_bytes, max_response_bytes)

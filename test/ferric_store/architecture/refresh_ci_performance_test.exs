@@ -155,7 +155,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     integration_script =
       File.read!(Path.expand("../../../scripts/test_integration.sh", __DIR__))
 
-    version = "0.11.4"
+    version = "0.11.5"
 
     assert [release_image] =
              Regex.run(
@@ -165,13 +165,15 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
 
     refute File.exists?(Path.expand("../../../scripts/server_build_compat.patch", __DIR__))
 
-    for workflow <- [
-          "../../../.github/workflows/ci.yml",
-          "../../../.github/workflows/release.yml"
-        ] do
-      source = File.read!(Path.expand(workflow, __DIR__))
+    ci = File.read!(Path.expand("../../../.github/workflows/ci.yml", __DIR__))
+    release = File.read!(Path.expand("../../../.github/workflows/release.yml", __DIR__))
 
-      assert source =~ "FERRICSTORE_TEST_IMAGE: \"#{release_image}\""
+    assert ci =~ release_image
+    assert ci =~ "server-version: \"0.11.4\""
+    assert ci =~ "FERRICSTORE_TEST_IMAGE: ${{ matrix.image }}"
+    assert release =~ "FERRICSTORE_TEST_IMAGE: \"#{release_image}\""
+
+    for source <- [ci, release] do
       assert source =~ ~s|"$FERRICSTORE_TEST_IMAGE"|
       refute source =~ "repository: ferricstore/ferricstore"
       refute source =~ "scripts/build_integration_server.sh"

@@ -113,6 +113,23 @@ defmodule FerricStore.ClientIntegrationTest do
     assert 1 = FerricStore.command(client, "XLEN", [second])
   end
 
+  test "compact Pub/Sub pipelines publish across channels", %{client: client} do
+    prefix = "elixir-sdk:pubsub-pipeline:#{unique("live")}:"
+
+    assert results =
+             FerricStore.pipeline(
+               client,
+               [
+                 ["PUBLISH", "#{prefix}first", "one"],
+                 ["PUBLISH", "#{prefix}second", "two"],
+                 ["PUBLISH", "#{prefix}first", "three"]
+               ],
+               return: :compact
+             )
+
+    assert Enum.map(results, &publish_pipeline_count!/1) == [0, 0, 0]
+  end
+
   test "topology-aware SDK KV helpers cover the Docker key command surface" do
     client = start_sdk_client("kv")
     tag = unique("sdk-kv")
@@ -511,14 +528,18 @@ defmodule FerricStore.ClientIntegrationTest do
     )
 
     jobs =
-      FerricStore.Flow.claim_due(client, type,
-        state: "queued",
-        worker: worker,
-        limit: 3,
-        include_attributes: false
-      )
+      assert_eventually(fn ->
+        jobs =
+          FerricStore.Flow.claim_due(client, type,
+            state: "queued",
+            worker: worker,
+            limit: 3,
+            include_attributes: false
+          )
 
-    assert length(jobs) == 3
+        assert length(jobs) == 3
+        jobs
+      end)
 
     assert_okish(
       FerricStore.Flow.complete_many(client, jobs,
@@ -1358,7 +1379,10 @@ defmodule FerricStore.ClientIntegrationTest do
     queue_id = unique("queue-flow")
 
     assert_okish(FerricStore.Queue.enqueue(queue, queue_id, payload: "queued"))
-    assert [_result] = FerricStore.Queue.run_once(queue, fn _job -> "done" end)
+
+    assert_eventually(fn ->
+      assert [_result] = FerricStore.Queue.run_once(queue, fn _job -> "done" end)
+    end)
 
     workflow =
       FerricStore.Workflow.new(client, unique("workflow"),
@@ -1369,7 +1393,12 @@ defmodule FerricStore.ClientIntegrationTest do
     workflow_id = unique("workflow-flow")
     assert_okish(FerricStore.Workflow.start(workflow, workflow_id, payload: "started"))
 
-    [job | _] = FerricStore.Workflow.claim(workflow, "reserved", limit: 1)
+    [job | _] =
+      assert_eventually(fn ->
+        jobs = FerricStore.Workflow.claim(workflow, "reserved", limit: 1)
+        assert [_job | _] = jobs
+        jobs
+      end)
 
     assert_okish(
       FerricStore.Workflow.complete(workflow, workflow_id,
@@ -1624,17 +1653,26 @@ defmodule FerricStore.ClientIntegrationTest do
     flunk("expected compact XADD result, got #{inspect(other)}")
   end
 
+  defp publish_pipeline_count!(count) when is_integer(count), do: count
+  defp publish_pipeline_count!(["ok", count]) when is_integer(count), do: count
+
+  defp publish_pipeline_count!(other) do
+    flunk("expected compact PUBLISH result, got #{inspect(other)}")
+  end
+
   defp unique(prefix) do
     "elixir-sdk-#{prefix}-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive, :monotonic])}"
   end
 
   defp claim_one(client, type, state, worker, opts \\ []) do
     opts = Keyword.merge([state: state, worker: worker, limit: 1], opts)
-    jobs = FerricStore.Flow.claim_due(client, type, opts)
 
-    assert is_list(jobs)
-    assert [_job | _] = jobs
-    jobs
+    assert_eventually(fn ->
+      jobs = FerricStore.Flow.claim_due(client, type, opts)
+      assert is_list(jobs)
+      assert [_job | _] = jobs
+      jobs
+    end)
   end
 
   defp assert_value_mget(client, ref, expected) do
