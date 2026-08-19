@@ -155,11 +155,11 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
     integration_script =
       File.read!(Path.expand("../../../scripts/test_integration.sh", __DIR__))
 
-    version = "0.11.5"
+    version = "0.11.6"
 
     assert [release_image] =
              Regex.run(
-               ~r|ghcr\.io/ferricstore/ferricstore:#{version}@sha256:[0-9a-f]{64}|,
+               ~r|quay\.io/ferricstore/ferricstore:#{version}@sha256:[0-9a-f]{64}|,
                integration_script
              )
 
