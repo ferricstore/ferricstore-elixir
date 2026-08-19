@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${FERRICSTORE_TEST_IMAGE:-ghcr.io/ferricstore/ferricstore:0.11.5@sha256:de7e508322f4c0665437f7a113455e19397d7d13d7d55e532be13f2b0f0f9edc}"
+IMAGE="${FERRICSTORE_TEST_IMAGE:-quay.io/ferricstore/ferricstore:0.11.6@sha256:0d615217030ecfc3bb21109109d4dd23fd615b994d2e3b28e037692dce937fdf}"
 CONTAINER="${FERRICSTORE_TEST_CONTAINER:-ferricstore-elixir-integration-$$}"
 HOST="${FERRICSTORE_TEST_HOST:-127.0.0.1}"
 PORT="${FERRICSTORE_TEST_PORT:-6388}"

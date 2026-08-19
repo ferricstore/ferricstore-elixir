@@ -843,7 +843,13 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
 
     assert_eventually(fn -> not Process.alive?(first_connection) end)
     assert {:ok, "OK"} = SDK.get(client, "after-goaway")
-    refute only_connection(client) == first_connection
+
+    assert_eventually(fn ->
+      case only_live_connection(client) do
+        connection when is_pid(connection) -> connection != first_connection
+        nil -> false
+      end
+    end)
 
     assert_receive {:native_server_request,
                     %{
@@ -1593,6 +1599,19 @@ defmodule FerricStore.SDK.Native.ClientConcurrencyTest do
     |> Map.fetch!(:connections)
     |> Map.values()
     |> then(fn [connection] -> connection end)
+  end
+
+  defp only_live_connection(client) do
+    client
+    |> ClientRuntime.state()
+    |> Map.fetch!(:connection_pool)
+    |> Map.fetch!(:connections)
+    |> Map.values()
+    |> Enum.filter(&Process.alive?/1)
+    |> case do
+      [connection] -> connection
+      _connections -> nil
+    end
   end
 
   defp pending_request_monitor_index_empty?(state) do

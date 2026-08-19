@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.11.6 - 2026-08-19
+
+- Validate the unchanged native protocol v1 and FerricStore `~> 0.11.4`
+  compatibility floor against FerricStore 0.11.6.
+- Move live integration from GHCR to the immutable FerricStore 0.11.6 image on
+  Quay.io.
+- Make the GOAWAY reconnection test tolerate the short, valid overlap between a
+  dead connection and its replacement in the client pool.
+
 ## 0.11.5 - 2026-08-03
 
 - Negotiate FerricStore 0.11.5's compact Stream producer capability and encode
