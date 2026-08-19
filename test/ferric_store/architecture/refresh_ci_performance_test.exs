@@ -159,7 +159,7 @@ defmodule FerricStore.Architecture.RefreshCiPerformanceTest do
 
     assert [release_image] =
              Regex.run(
-               ~r|ghcr\.io/ferricstore/ferricstore:#{version}@sha256:[0-9a-f]{64}|,
+               ~r|quay\.io/ferricstore/ferricstore:#{version}@sha256:[0-9a-f]{64}|,
                integration_script
              )
 
