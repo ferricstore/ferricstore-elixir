@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.11.11 - 2026-08-22
+
+- Mark HTTP-only live tests as skipped when the configured integration endpoint
+  is native TCP, while retaining their dedicated HTTP SDK tag for HTTP URLs.
+
 ## 0.11.10 - 2026-08-22
 
 - Keep HTTP-only live tests out of the native TCP integration filter while

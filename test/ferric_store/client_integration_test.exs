@@ -20,6 +20,10 @@ defmodule FerricStore.ClientIntegrationTest do
 
   @moduletag :integration
   @docker_url System.get_env("FERRICSTORE_TEST_URL", "ferric://127.0.0.1:6388")
+  @http_sdk_integration_tag (case String.starts_with?(@docker_url, ["http://", "https://"]) do
+                               true -> :http_sdk_integration
+                               false -> {:skip, "requires FERRICSTORE_TEST_URL=http(s)://..."}
+                             end)
 
   setup do
     client = FerricStore.connect!(connection_options("test"))
@@ -326,8 +330,7 @@ defmodule FerricStore.ClientIntegrationTest do
     end
   end
 
-  @tag integration: false
-  @tag :http_sdk_integration
+  @tag @http_sdk_integration_tag
   test "HTTP accepts the complete typed Flow command catalog", %{client: client} do
     unless String.starts_with?(@docker_url, ["http://", "https://"]) do
       flunk("HTTP command catalog test requires FERRICSTORE_TEST_URL=http(s)://...")
@@ -475,8 +478,7 @@ defmodule FerricStore.ClientIntegrationTest do
     assert FerricStore.zrange(client, key, 0, -1) == ["b"]
   end
 
-  @tag integration: false
-  @tag :http_sdk_integration
+  @tag @http_sdk_integration_tag
   test "flow lifecycle covers create, value refs, get, list, history, claim, transition, and complete",
        %{
          client: client
@@ -1276,8 +1278,7 @@ defmodule FerricStore.ClientIntegrationTest do
     assert FerricStore.ping(old_client) == "PONG"
   end
 
-  @tag integration: false
-  @tag :http_sdk_integration
+  @tag @http_sdk_integration_tag
   test "topology-aware SDK interval schedules coalesce missed occurrences once", %{
     client: old_client
   } do
@@ -1410,8 +1411,7 @@ defmodule FerricStore.ClientIntegrationTest do
     )
   end
 
-  @tag integration: false
-  @tag :http_sdk_integration
+  @tag @http_sdk_integration_tag
   test "queue and workflow convenience APIs use the same native client", %{client: client} do
     queue = FerricStore.Queue.new(client, unique("queue"), worker: unique("queue-worker"))
     queue_id = unique("queue-flow")
