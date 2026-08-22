@@ -4,7 +4,7 @@ defmodule FerricStore.MixProject do
   def project do
     [
       app: :ferricstore_sdk,
-      version: "0.11.11",
+      version: "0.11.12",
       elixir: "~> 1.20",
       description: "Official Elixir SDK for FerricStore over native TCP and stateless HTTP.",
       elixirc_paths: elixirc_paths(Mix.env()),

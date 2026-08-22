@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.11.12 - 2026-08-22
+
+- Make native integration fixture shutdown idempotent when an intentionally
+  failed connection races its linked fake server during test cleanup.
+
 ## 0.11.11 - 2026-08-22
 
 - Mark HTTP-only live tests as skipped when the configured integration endpoint
