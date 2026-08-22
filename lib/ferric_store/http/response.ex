@@ -34,10 +34,11 @@ defmodule FerricStore.HTTP.Response do
 
   defp top_error(status, envelope, headers) do
     details = if is_map(envelope["error"]), do: envelope["error"], else: %{}
-    code = details["code"]
+    code = if is_binary(details["code"]), do: details["code"]
+    message = if is_binary(details["message"]), do: details["message"]
 
     %Error{
-      message: details["message"] || "HTTP command request failed with status #{status}",
+      message: message || "HTTP command request failed with status #{status}",
       status_code: status,
       error_code: code,
       retry_after_ms: retry_after(headers),

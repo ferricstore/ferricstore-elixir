@@ -5,9 +5,11 @@ defmodule FerricStore.HTTPClientTest do
   alias FerricStore.HTTP.Client, as: HTTPClient
   alias FerricStore.HTTP.Command
   alias FerricStore.HTTP.Envelope
+  alias FerricStore.HTTP.Error
   alias FerricStore.HTTP.Finch.HTTP2
   alias FerricStore.Protocol.CommandSpec
   alias FerricStore.SDK
+  alias FerricStore.Timeout
 
   setup do
     bypass = Bypass.open()
@@ -53,6 +55,24 @@ defmodule FerricStore.HTTPClientTest do
     assert :ok = SDK.close(client)
   end
 
+  test "generic HTTP ping preserves native payload compatibility", context do
+    expected_messages = ["PONG", "custom"]
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    Bypass.expect(context.bypass, "POST", "/v1/commands", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      index = Agent.get_and_update(counter, &{&1, &1 + 1})
+      expected = Enum.fetch!(expected_messages, index)
+      assert Jason.decode!(body)["commands"] == [["PING", expected]]
+      Plug.Conn.send_resp(conn, 200, Jason.encode!(success_envelope(expected)))
+    end)
+
+    assert {:ok, client} = SDK.from_url(context.url)
+    assert {:ok, "PONG"} = SDK.request(client, :ping, false)
+    assert {:ok, "custom"} = SDK.request(client, :ping, %{message: "custom"})
+    assert :ok = SDK.close(client)
+  end
+
   test "HTTP payloads normalize atom values and map keys like the native codec" do
     descriptor = %{
       "command" => "FLOW.SCHEDULE.CREATE",
@@ -71,6 +91,59 @@ defmodule FerricStore.HTTPClientTest do
              Envelope.encode_commands([
                %{descriptor | "payload" => %{:kind => "first", "kind" => "second"}}
              ])
+
+    assert {:error, {:invalid_http_value, :improper_list}} =
+             Envelope.encode_commands([
+               %{descriptor | "payload" => %{"items" => ["value" | :invalid_tail]}}
+             ])
+  end
+
+  test "malformed typed response markers fail closed without raising" do
+    assert {:error, {:invalid_http_response, :invalid_base64}} =
+             Envelope.decode(~s({"$ferricstore_bytes":1}))
+
+    duplicate =
+      Jason.encode!(%{
+        "$ferricstore_map" => [
+          ["key", "first"],
+          ["key", "second"]
+        ]
+      })
+
+    assert {:error, {:invalid_http_response, :duplicate_map_key}} = Envelope.decode(duplicate)
+  end
+
+  test "HTTP options reject malformed keywords and ambiguous or invalid headers", context do
+    assert {:error, {:invalid_http_url, :port}} =
+             SDK.from_url("http://127.0.0.1:99999")
+
+    assert {:error, {:invalid_http_options, [:not_an_option]}} =
+             SDK.from_url(context.url, [:not_an_option])
+
+    assert {:error, {:invalid_http_options, {:duplicate_options, [:bearer_token]}}} =
+             SDK.from_url(context.url, bearer_token: "first", bearer_token: "second")
+
+    assert {:error, {:invalid_http_header, {:duplicate, "authorization"}}} =
+             SDK.from_url(context.url,
+               headers: [{"Authorization", "Bearer first"}, {"authorization", "Bearer second"}]
+             )
+
+    assert {:error, {:invalid_http_headers, :invalid_tail}} =
+             SDK.from_url(context.url, headers: [{"x-trace", "trace"} | :invalid_tail])
+
+    assert {:error, {:invalid_http_header, "bad header"}} =
+             SDK.from_url(context.url, headers: [{"bad header", "value"}])
+
+    assert {:error, {:invalid_http_header, {:reserved, "content-length"}}} =
+             SDK.from_url(context.url, headers: [{"content-length", "0"}])
+
+    assert {:error, {:invalid_http_credentials, :bearer_token}} =
+             SDK.from_url(context.url, bearer_token: "")
+
+    unsafe_timeout = Timeout.max_finite() + 1
+
+    assert {:error, {:invalid_http_option, :timeout, ^unsafe_timeout}} =
+             SDK.from_url(context.url, timeout: unsafe_timeout)
   end
 
   test "one SDK pipeline is one HTTP request with ordered item outcomes", context do
@@ -94,6 +167,47 @@ defmodule FerricStore.HTTPClientTest do
 
     assert [["ok", "PONG"], ["error", %{"code" => "noperm", "message" => "denied"}], ["ok", 3]] =
              FerricStore.pipeline(client, [["PING"], ["GET", "secret"], ["INCR", "counter"]])
+
+    assert :ok = SDK.close(client)
+  end
+
+  test "finite blocking waits extend the implicit HTTP timeout", context do
+    Bypass.expect_once(context.bypass, "POST", "/v1/commands", fn conn ->
+      Process.sleep(100)
+      Plug.Conn.send_resp(conn, 200, Jason.encode!(success_envelope(nil)))
+    end)
+
+    assert {:ok, client} = SDK.from_url(context.url, timeout: 50)
+    assert nil == FerricStore.command(client, "BLPOP", ["jobs", "0.1"])
+    assert :ok = SDK.close(client)
+  end
+
+  test "mixed blocking pipelines share one extended HTTP deadline", context do
+    Bypass.expect_once(context.bypass, "POST", "/v1/commands", fn conn ->
+      Process.sleep(100)
+
+      response = %{
+        "encoding" => "ferricstore-json-v1",
+        "results" => [
+          %{"status" => "ok", "value" => "PONG"},
+          %{"status" => "ok", "value" => nil},
+          %{"status" => "ok", "value" => nil},
+          %{"status" => "ok", "value" => "PONG"}
+        ]
+      }
+
+      Plug.Conn.send_resp(conn, 200, Jason.encode!(response))
+    end)
+
+    assert {:ok, client} = SDK.from_url(context.url, timeout: 30)
+
+    assert [["ok", "PONG"], ["ok", nil], ["ok", nil], ["ok", "PONG"]] =
+             FerricStore.pipeline(client, [
+               ["PING"],
+               ["BLPOP", "jobs", "0.1"],
+               ["XREAD", "BLOCK", "100", "STREAMS", "orders", "$"],
+               ["PING"]
+             ])
 
     assert :ok = SDK.close(client)
   end
@@ -123,6 +237,33 @@ defmodule FerricStore.HTTPClientTest do
   test "HTTP/2 is explicit and uses the multiplexed pool", context do
     assert {:ok, client} = SDK.from_url(context.url, http2: true)
     assert %{http2: true, pool: HTTP2} = HTTPClient.config(client)
+    assert :ok = SDK.close(client)
+  end
+
+  test "connection-affine event waits fail locally for HTTP", context do
+    assert {:ok, client} = SDK.from_url(context.url)
+    assert {:error, {:http_native_only, :await_event}} = SDK.await_event(client, 0)
+    assert :ok = SDK.close(client)
+  end
+
+  test "invalid UTF-8 command names fail locally without crashing", context do
+    invalid = <<0xFF, 0xFE>>
+    assert {:ok, client} = SDK.from_url(context.url)
+
+    assert {:error, %FerricStore.Error{raw: {:invalid_command, %{reason: :invalid_utf8}}}} =
+             FerricStore.command(client, invalid)
+
+    message =
+      {:request, CommandSpec.fetch!(:command_exec).opcode, %{"command" => invalid, "args" => []},
+       nil}
+
+    assert {:error,
+            %Error{
+              error_code: "native_only",
+              reason: {:http_native_only, :invalid_command_exec}
+            }} = Command.execute(HTTPClient.config(client), message, 5_000)
+
+    assert Process.alive?(client)
     assert :ok = SDK.close(client)
   end
 

@@ -7,6 +7,7 @@ defmodule FerricStore.SDK.Native.EventInbox do
   @type result ::
           {:ok, map()}
           | {:error, :client_closed | {:client_unavailable, :invalid_client}}
+          | {:error, {:http_native_only, :await_event}}
           | {:error, {:invalid_timeout, term()}}
           | nil
 
@@ -15,6 +16,7 @@ defmodule FerricStore.SDK.Native.EventInbox do
     if Timeout.valid?(timeout) do
       case ClientIdentity.type(client) do
         :topology_aware -> EventTerminal.await(client, timeout)
+        :http -> {:error, {:http_native_only, :await_event}}
         :unknown -> invalid_client()
         :dead -> {:error, :client_closed}
       end

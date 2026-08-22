@@ -2,10 +2,10 @@
 
 Elixir SDK for FerricStore and FerricFlow over native TCP and stateless HTTP.
 
-Status: public beta. SDK `0.11.12` requires FerricStore `~> 0.11.4` and
-negotiates compact Stream mode 34 and compact Pub/Sub mode 35 with FerricStore
-0.11.8. Native wire framing and the generic compatibility paths remain protocol
-v1. APIs may change before `1.0`, but the SDK is
+Status: public beta. SDK `0.11.13` requires FerricStore `~> 0.11.4`, negotiates
+compact Stream mode 34 and compact Pub/Sub mode 35 with FerricStore 0.11.8 and
+later, and is validated against FerricStore 0.11.10. Native wire framing and the
+generic compatibility paths remain protocol v1. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
 
@@ -31,7 +31,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.11.12"}
+    {:ferricstore_sdk, "~> 0.11.13"}
   ]
 end
 ```
@@ -45,7 +45,7 @@ mix test
 
 ### 2. Start FerricStore
 
-For local development, run the same immutable FerricStore 0.11.8 image used by
+For local development, run the same immutable FerricStore 0.11.10 image used by
 the SDK integration workflow:
 
 ```bash
@@ -54,7 +54,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  quay.io/ferricstore/ferricstore:0.11.8@sha256:d472b337fcec536b46e4ba7549689bc5c7fc67948071f6e39cc13ca0e8879ce2
+  quay.io/ferricstore/ferricstore:0.11.10@sha256:3af390b7429ea3fea2983938eb7adcdd3e8005d06c67473f769f29ebd48e8ab3
 ```
 
 The SDK examples assume:
@@ -90,7 +90,10 @@ Use `bearer_token:` for Bearer authentication. Basic username/password
 authentication is accepted only with `https://`; omitting the username uses
 `default`. An SDK pipeline becomes one ordered HTTP request. Limits include
 `timeout:`, `max_request_bytes:`, `max_response_bytes:`, `max_batch_items:`,
-`max_connections:`, and `max_concurrent_requests:`.
+`max_connections:`, and `max_concurrent_requests:`. For HTTP/1.1,
+`max_connections:` is the default per-client admission width; the shared Finch
+pool remains capped at 100 connections per origin. HTTP/2 uses one multiplexed
+connection and `max_concurrent_requests:` bounds active streams.
 
 For private certificate authorities, configure the shared Finch pools before
 the application starts:
@@ -101,10 +104,16 @@ config :ferricstore_sdk,
 ```
 
 HTTP requests are stateless. `AUTH`, `CLIENT`, transactions, Pub/Sub
-subscriptions, blocking list/stream reads, and `WATCH` require native TCP and
-fail locally when used through HTTP. Redirects retain authentication and custom
-headers across origins; configure only endpoints and redirect targets you
-trust.
+subscriptions, and `WATCH` require native TCP and fail locally when used
+through HTTP. `BLPOP`, `BRPOP`, `BLMOVE`, `BLMPOP`, `XREAD BLOCK`, and
+`XREADGROUP BLOCK` run as long-lived HTTP requests and may appear with ordinary
+commands in one ordered SDK pipeline. Finite blocking waits extend the implicit
+SDK deadline; `BLOCK 0` removes that implicit deadline. An explicit request
+`timeout:` or `call_timeout:` remains authoritative, so use an explicit finite
+deadline when an unbounded wait is not intended. Redirects retain
+authentication and custom headers across origins; configure only endpoints and
+redirect targets you trust. The SDK owns HTTP framing headers such as `host`,
+`content-length`, and `transfer-encoding`; custom headers cannot override them.
 
 ### 4. Query durable runs
 
