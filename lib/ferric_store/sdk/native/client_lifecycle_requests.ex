@@ -23,7 +23,7 @@ defmodule FerricStore.SDK.Native.ClientLifecycleRequests do
   def close(client, timeout) when is_pid(client) do
     if Timeout.valid?(timeout) do
       case ClientIdentity.type(client) do
-        :topology_aware -> ClientShutdown.stop(client, timeout)
+        type when type in [:topology_aware, :http] -> ClientShutdown.stop(client, timeout)
         :unknown -> {:error, {:invalid_client, :unknown}}
         :dead -> :ok
       end

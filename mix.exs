@@ -4,9 +4,9 @@ defmodule FerricStore.MixProject do
   def project do
     [
       app: :ferricstore_sdk,
-      version: "0.11.7",
+      version: "0.11.9",
       elixir: "~> 1.20",
-      description: "Official Elixir SDK for FerricStore over the native ferric:// protocol.",
+      description: "Official Elixir SDK for FerricStore over native TCP and stateless HTTP.",
       elixirc_paths: elixirc_paths(Mix.env()),
       package: package(),
       source_url: "https://github.com/ferricstore/ferricstore-elixir",
@@ -31,7 +31,8 @@ defmodule FerricStore.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger, :ssl]
+      extra_applications: [:logger, :ssl],
+      mod: {FerricStore.Application, []}
     ]
   end
 
@@ -39,8 +40,10 @@ defmodule FerricStore.MixProject do
   defp deps do
     [
       {:arch_test, "~> 0.3.1", only: [:dev, :test], runtime: false},
+      {:bypass, "~> 2.1", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false},
+      {:finch, "~> 0.23.0"},
       {:jason, "~> 1.4"}
     ]
   end

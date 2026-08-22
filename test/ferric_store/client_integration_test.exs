@@ -13,7 +13,8 @@ defmodule FerricStore.ClientIntegrationTest do
     StalePolicyGenerationError
   }
 
-  alias FerricStore.Protocol.Opcodes
+  alias FerricStore.HTTP.Command, as: HTTPCommand
+  alias FerricStore.Protocol.{CommandSpec, Opcodes}
   alias FerricStore.SDK
   alias FerricStore.SDK.{Admin, Flow}
 
@@ -21,7 +22,7 @@ defmodule FerricStore.ClientIntegrationTest do
   @docker_url System.get_env("FERRICSTORE_TEST_URL", "ferric://127.0.0.1:6388")
 
   setup do
-    client = FerricStore.connect!(url: @docker_url, client_name: "ferricstore-elixir-test")
+    client = FerricStore.connect!(connection_options("test"))
 
     on_exit(fn -> FerricStore.close(client) end)
 
@@ -325,6 +326,35 @@ defmodule FerricStore.ClientIntegrationTest do
     end
   end
 
+  @tag :http_sdk_integration
+  test "HTTP accepts the complete typed Flow command catalog", %{client: client} do
+    unless String.starts_with?(@docker_url, ["http://", "https://"]) do
+      flunk("HTTP command catalog test requires FERRICSTORE_TEST_URL=http(s)://...")
+    end
+
+    commands =
+      CommandSpec.all()
+      |> Enum.map(& &1.name)
+      |> Enum.filter(&String.starts_with?(&1, "FLOW."))
+      |> Kernel.++(["FLOW.QUERY.INDEXES"])
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    assert length(commands) == 67
+
+    Enum.each(commands, fn command ->
+      case CommandSpec.fetch(command) do
+        {:ok, spec} ->
+          assert HTTPCommand.disposition(command, spec.opcode) == :supported
+
+        :error ->
+          assert command == "FLOW.QUERY.INDEXES"
+      end
+
+      _result = FerricStore.command(client, command)
+    end)
+  end
+
   test "KV helpers cover set, get, mset, mget, and delete", %{client: client} do
     prefix = unique("kv")
     key = "{#{prefix}}:one"
@@ -444,6 +474,7 @@ defmodule FerricStore.ClientIntegrationTest do
     assert FerricStore.zrange(client, key, 0, -1) == ["b"]
   end
 
+  @tag :http_sdk_integration
   test "flow lifecycle covers create, value refs, get, list, history, claim, transition, and complete",
        %{
          client: client
@@ -855,10 +886,7 @@ defmodule FerricStore.ClientIntegrationTest do
 
       limited =
         FerricStore.connect!(
-          url: @docker_url,
-          username: username,
-          password: password,
-          client_name: "ferricstore-elixir-query-acl"
+          connection_options("query-acl", username: username, password: password)
         )
 
       try do
@@ -1194,11 +1222,7 @@ defmodule FerricStore.ClientIntegrationTest do
 
   test "topology-aware SDK flow wrapper supports indexed state metadata", %{client: old_client} do
     {:ok, client} =
-      FerricStore.SDK.start_link(
-        url: @docker_url,
-        client_name: "ferricstore-elixir-sdk-test",
-        endpoint_policy: :any
-      )
+      FerricStore.SDK.start_link(connection_options("sdk-test"))
 
     on_exit(fn -> FerricStore.SDK.close(client) end)
 
@@ -1250,6 +1274,7 @@ defmodule FerricStore.ClientIntegrationTest do
     assert FerricStore.ping(old_client) == "PONG"
   end
 
+  @tag :http_sdk_integration
   test "topology-aware SDK interval schedules coalesce missed occurrences once", %{
     client: old_client
   } do
@@ -1262,6 +1287,10 @@ defmodule FerricStore.ClientIntegrationTest do
     every_ms = 5
     recovery_ms = due_at_ms + 10 * every_ms
 
+    on_exit(fn ->
+      _result = Flow.schedule_delete(client, %{id: schedule_id, now_ms: recovery_ms + 1})
+    end)
+
     assert {:ok, created} =
              Flow.schedule_create(client, %{
                id: schedule_id,
@@ -1270,7 +1299,11 @@ defmodule FerricStore.ClientIntegrationTest do
                start_at_ms: due_at_ms,
                now_ms: now_ms,
                catchup_policy: "fire_once",
-               target: %{id_prefix: target_prefix, type: "scheduled-integration"}
+               target: %{
+                 id_prefix: target_prefix,
+                 type: "scheduled-integration",
+                 partition_key: schedule_id
+               }
              })
 
     assert created["catchup_policy"] == "fire_once"
@@ -1374,6 +1407,7 @@ defmodule FerricStore.ClientIntegrationTest do
     )
   end
 
+  @tag :http_sdk_integration
   test "queue and workflow convenience APIs use the same native client", %{client: client} do
     queue = FerricStore.Queue.new(client, unique("queue"), worker: unique("queue-worker"))
     queue_id = unique("queue-flow")
@@ -1410,15 +1444,34 @@ defmodule FerricStore.ClientIntegrationTest do
   end
 
   defp start_sdk_client(name) do
-    {:ok, client} =
-      SDK.start_link(
-        url: @docker_url,
-        client_name: "ferricstore-elixir-sdk-#{name}",
-        endpoint_policy: :any
-      )
+    options =
+      if String.starts_with?(@docker_url, ["http://", "https://"]),
+        do: connection_options("sdk-#{name}"),
+        else: Keyword.put(connection_options("sdk-#{name}"), :endpoint_policy, :any)
+
+    {:ok, client} = SDK.start_link(options)
 
     on_exit(fn -> SDK.close(client) end)
     client
+  end
+
+  defp connection_options(name, overrides \\ []) do
+    options =
+      if String.starts_with?(@docker_url, ["http://", "https://"]) do
+        [
+          url: @docker_url,
+          username: System.get_env("FERRICSTORE_USERNAME") || "default",
+          password: System.fetch_env!("FERRICSTORE_PASSWORD"),
+          http2: System.get_env("FERRICSTORE_HTTP2", "true") == "true"
+        ]
+      else
+        [
+          url: @docker_url,
+          client_name: "ferricstore-elixir-#{name}"
+        ]
+      end
+
+    Keyword.merge(options, overrides)
   end
 
   defp same_slot_key(tag, suffix), do: "elixir-sdk:{#{tag}}:#{suffix}"
