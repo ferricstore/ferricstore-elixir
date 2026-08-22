@@ -748,7 +748,7 @@ defmodule FerricStore.SDK.Native.ConnectionTest do
         if Process.alive?(conn), do: Connection.close(conn)
       end)
 
-      if Process.alive?(server), do: GenServer.stop(server, :normal)
+      stop_native_server(server)
     end)
 
     assert {:ok, "OK"} =
@@ -903,10 +903,16 @@ defmodule FerricStore.SDK.Native.ConnectionTest do
 
     on_exit(fn ->
       Connection.close(connection)
-      if Process.alive?(server), do: GenServer.stop(server, :normal)
+      stop_native_server(server)
     end)
 
     {server, connection}
+  end
+
+  defp stop_native_server(server) do
+    if Process.alive?(server), do: GenServer.stop(server, :normal)
+  catch
+    :exit, _reason -> :ok
   end
 
   defp cancel_reductions(count) do
