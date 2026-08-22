@@ -326,6 +326,7 @@ defmodule FerricStore.ClientIntegrationTest do
     end
   end
 
+  @tag integration: false
   @tag :http_sdk_integration
   test "HTTP accepts the complete typed Flow command catalog", %{client: client} do
     unless String.starts_with?(@docker_url, ["http://", "https://"]) do
@@ -474,6 +475,7 @@ defmodule FerricStore.ClientIntegrationTest do
     assert FerricStore.zrange(client, key, 0, -1) == ["b"]
   end
 
+  @tag integration: false
   @tag :http_sdk_integration
   test "flow lifecycle covers create, value refs, get, list, history, claim, transition, and complete",
        %{
@@ -1274,6 +1276,7 @@ defmodule FerricStore.ClientIntegrationTest do
     assert FerricStore.ping(old_client) == "PONG"
   end
 
+  @tag integration: false
   @tag :http_sdk_integration
   test "topology-aware SDK interval schedules coalesce missed occurrences once", %{
     client: old_client
@@ -1407,6 +1410,7 @@ defmodule FerricStore.ClientIntegrationTest do
     )
   end
 
+  @tag integration: false
   @tag :http_sdk_integration
   test "queue and workflow convenience APIs use the same native client", %{client: client} do
     queue = FerricStore.Queue.new(client, unique("queue"), worker: unique("queue-worker"))
