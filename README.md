@@ -1,6 +1,6 @@
 # FerricStore Elixir SDK
 
-Elixir SDK for FerricStore and FerricFlow over the native `ferric://` protocol.
+Elixir SDK for FerricStore and FerricFlow over native TCP and stateless HTTP.
 
 Status: public beta. SDK `0.11.7` requires FerricStore `~> 0.11.4` and
 negotiates compact Stream mode 34 and compact Pub/Sub mode 35 with FerricStore
@@ -71,6 +71,40 @@ ferric://127.0.0.1:6388
 :ok = FerricStore.set(client, "hello", "world")
 "world" = FerricStore.get(client, "hello")
 ```
+
+The same command API can use a FerricStore HTTP server. HTTP/1.1 keeps
+connections alive; set `http2: true` for a multiplexed HTTP/2 connection:
+
+```elixir
+{:ok, client} =
+  FerricStore.SDK.from_url("https://ferricstore-http.example.com",
+    username: "default",
+    password: password,
+    http2: true
+  )
+
+{:ok, "PONG"} = FerricStore.SDK.ping(client)
+```
+
+Use `bearer_token:` for Bearer authentication. Basic username/password
+authentication is accepted only with `https://`; omitting the username uses
+`default`. An SDK pipeline becomes one ordered HTTP request. Limits include
+`timeout:`, `max_request_bytes:`, `max_response_bytes:`, `max_batch_items:`,
+`max_connections:`, and `max_concurrent_requests:`.
+
+For private certificate authorities, configure the shared Finch pools before
+the application starts:
+
+```elixir
+config :ferricstore_sdk,
+  http_pool_transport_options: [verify: :verify_peer, cacertfile: "/etc/ssl/ferricstore-ca.pem"]
+```
+
+HTTP requests are stateless. `AUTH`, `CLIENT`, transactions, Pub/Sub
+subscriptions, blocking list/stream reads, and `WATCH` require native TCP and
+fail locally when used through HTTP. Redirects retain authentication and custom
+headers across origins; configure only endpoints and redirect targets you
+trust.
 
 ### 4. Query durable runs
 
@@ -379,8 +413,9 @@ Phoenix/API/serverless producer -> FerricStore -> supervised worker service
 
 Before production, configure timeouts, lease duration, backpressure behavior,
 graceful shutdown, and value hydration caps. The `ferric://` transport uses one
-multiplexed native socket per SDK client process; create more client processes
-only after profiling shows client-side saturation.
+multiplexed native socket per SDK client process. HTTP/1.1 uses a bounded shared
+keep-alive pool and HTTP/2 multiplexes requests over a shared connection; create
+more clients only after profiling shows client-side saturation.
 
 ## Docs
 

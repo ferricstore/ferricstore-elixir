@@ -2,14 +2,14 @@ defmodule FerricStore.ClientIdentity do
   @moduledoc false
 
   @label_prefix __MODULE__
-  @client_types [:topology_aware]
+  @client_types [:topology_aware, :http]
 
-  @spec mark(:topology_aware, :ets.tid()) :: term()
+  @spec mark(:topology_aware | :http, :ets.tid()) :: term()
   def mark(type, endpoint) when type in @client_types do
     Process.set_label({@label_prefix, type, endpoint})
   end
 
-  @spec type(pid()) :: :topology_aware | :unknown | :dead
+  @spec type(pid()) :: :topology_aware | :http | :unknown | :dead
   def type(pid) when is_pid(pid) do
     case Process.info(pid, :label) do
       {:label, {@label_prefix, type, endpoint}} when type in @client_types ->

@@ -18,12 +18,14 @@ defmodule FerricStore.Flow.BatchRuntime do
           RequestContext.t()
         ) :: term()
   def request(client, opcode, payload, opts, compact_fun, item_count, context) do
-    if Keyword.get(opts, :timeout) == :infinity do
+    if Keyword.get(opts, :timeout) == :infinity and native_transport?(client) do
       request_infinite(client, opcode, payload, opts, compact_fun, item_count, context)
     else
       RequestRuntime.request(client, opcode, payload, opts, context)
     end
   end
+
+  defp native_transport?(client), do: FerricStore.ClientIdentity.type(client) == :topology_aware
 
   defp request_infinite(client, opcode, payload, opts, compact_fun, item_count, context) do
     case FlowRouting.resolve_payload(opcode, payload, opts, RequestContext.budget(context)) do

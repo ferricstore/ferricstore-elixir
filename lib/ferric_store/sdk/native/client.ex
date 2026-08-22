@@ -6,6 +6,9 @@ defmodule FerricStore.SDK.Native.Client do
   coordinator. Socket ownership remains in native connection processes.
   """
 
+  alias FerricStore.ClientIdentity
+  alias FerricStore.HTTP.Client, as: HTTPClient
+  alias FerricStore.SDK.ClientTransport
   alias FerricStore.SDK.Native.{ClientBatchRequests, ClientRequests, PipelineRequests, Topology}
 
   @default_timeout 5_000
@@ -34,7 +37,7 @@ defmodule FerricStore.SDK.Native.Client do
 
   def cancel_async(client, owner, ref, timeout)
       when is_pid(client) and is_pid(owner) and is_reference(ref),
-      do: ClientRequests.cancel_async(client, owner, ref, timeout)
+      do: cancel_for_transport(client, owner, ref, timeout)
 
   def cancel_async(client, _owner, _ref, _timeout) when not is_pid(client),
     do: invalid_cancellation(:invalid_client)
@@ -46,7 +49,7 @@ defmodule FerricStore.SDK.Native.Client do
     do: invalid_cancellation(:invalid_reference)
 
   @spec from_url(binary(), keyword()) :: GenServer.on_start()
-  def from_url(url, opts \\ []), do: ClientRequests.from_url(url, opts)
+  def from_url(url, opts \\ []), do: ClientTransport.from_url(url, opts)
 
   @spec subscribe_events(pid(), [term()], keyword()) :: {:ok, term()} | {:error, term()}
   def subscribe_events(client, events \\ [], opts \\ []),
@@ -166,4 +169,11 @@ defmodule FerricStore.SDK.Native.Client do
 
   defp invalid_cancellation(reason),
     do: {:error, {:cancel_failed, {:invalid_async_request, reason}}}
+
+  defp cancel_for_transport(client, owner, ref, timeout) do
+    case ClientIdentity.type(client) do
+      :http -> HTTPClient.cancel(client, owner, ref, timeout)
+      _native -> ClientRequests.cancel_async(client, owner, ref, timeout)
+    end
+  end
 end
