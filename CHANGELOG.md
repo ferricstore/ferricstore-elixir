@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.11.10 - 2026-08-22
+
+- Keep HTTP-only live tests out of the native TCP integration filter while
+  retaining their dedicated HTTP SDK integration coverage.
+
 ## 0.11.9 - 2026-08-22
 
 - Add stateless HTTP and HTTPS transports behind the existing command, Flow,
