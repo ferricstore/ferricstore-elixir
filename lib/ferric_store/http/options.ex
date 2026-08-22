@@ -1,12 +1,14 @@
 defmodule FerricStore.HTTP.Options do
   @moduledoc false
 
-  alias FerricStore.HTTP.PoolSupervisor
+  alias FerricStore.HTTP.{HeaderOptions, PoolSupervisor}
+  alias FerricStore.{OptionList, Timeout}
 
   @default_timeout 30_000
   @default_request_bytes 1024 * 1024
   @default_response_bytes 16 * 1024 * 1024
   @default_batch_items 1_000
+  @max_options 32
   @keys [
     :bearer_token,
     :headers,
@@ -47,10 +49,11 @@ defmodule FerricStore.HTTP.Options do
 
   @spec new(binary(), keyword()) :: {:ok, t()} | {:error, term()}
   def new(url, opts) when is_binary(url) and is_list(opts) do
-    with :ok <- supported_options(opts),
+    with :ok <- option_list(opts),
+         :ok <- supported_options(opts),
          {:ok, uri} <- parse_url(url),
          {:ok, http2} <- boolean(opts, :http2, false),
-         {:ok, headers} <- headers(uri.scheme, opts),
+         {:ok, headers} <- HeaderOptions.build(uri.scheme, opts),
          {:ok, timeout} <- timeout(opts),
          {:ok, max_connections} <- positive(opts, :max_connections, 1),
          {:ok, max_concurrent} <- concurrent_limit(opts, http2, max_connections),
@@ -78,10 +81,18 @@ defmodule FerricStore.HTTP.Options do
 
   def new(_url, _opts), do: {:error, {:invalid_http_options, :expected_url_and_keyword_list}}
 
+  defp option_list(opts) do
+    case OptionList.validate(opts, @max_options) do
+      :ok -> :ok
+      {:error, {:options, reason}} -> {:error, {:invalid_http_options, reason}}
+    end
+  end
+
   defp parse_url(url) do
     with {:ok, uri} <- URI.new(url),
          true <- uri.scheme in ["http", "https"] || {:error, {:invalid_url_scheme, uri.scheme}},
          true <- (is_binary(uri.host) and uri.host != "") || {:error, {:invalid_http_url, :host}},
+         true <- uri.port in 1..65_535 || {:error, {:invalid_http_url, :port}},
          true <- is_nil(uri.userinfo) || {:error, {:invalid_http_url, :userinfo}},
          true <- is_nil(uri.query) || {:error, {:invalid_http_url, :query}},
          true <- is_nil(uri.fragment) || {:error, {:invalid_http_url, :fragment}} do
@@ -99,9 +110,14 @@ defmodule FerricStore.HTTP.Options do
   defp timeout(opts) do
     case Keyword.get(opts, :timeout, @default_timeout) do
       :infinity -> {:ok, :infinity}
-      value when is_integer(value) and value > 0 -> {:ok, value}
-      value -> {:error, {:invalid_http_option, :timeout, value}}
+      value -> validate_timeout(value)
     end
+  end
+
+  defp validate_timeout(value) do
+    if Timeout.positive?(value),
+      do: {:ok, value},
+      else: {:error, {:invalid_http_option, :timeout, value}}
   end
 
   defp positive(opts, key, default) do
@@ -122,77 +138,4 @@ defmodule FerricStore.HTTP.Options do
     default = if http2, do: 100, else: connections
     positive(opts, :max_concurrent_requests, default)
   end
-
-  defp headers(scheme, opts) do
-    with {:ok, headers} <- normalize_headers(Keyword.get(opts, :headers, %{})),
-         {:ok, authorization} <- authorization(scheme, opts, headers) do
-      {:ok, put_authorization(headers, authorization)}
-    end
-  end
-
-  defp normalize_headers(headers) when is_map(headers),
-    do: normalize_headers(Map.to_list(headers))
-
-  defp normalize_headers(headers) when is_list(headers) do
-    Enum.reduce_while(headers, {:ok, []}, fn
-      {name, value}, {:ok, acc} when is_binary(name) and is_binary(value) ->
-        if safe_header?(name, value),
-          do: {:cont, {:ok, [{String.downcase(name), value} | acc]}},
-          else: {:halt, {:error, {:invalid_http_header, name}}}
-
-      invalid, _acc ->
-        {:halt, {:error, {:invalid_http_header, invalid}}}
-    end)
-  end
-
-  defp normalize_headers(invalid), do: {:error, {:invalid_http_headers, invalid}}
-
-  defp authorization(scheme, opts, headers) do
-    bearer = Keyword.get(opts, :bearer_token)
-    username = Keyword.get(opts, :username)
-    password = Keyword.get(opts, :password)
-    custom? = List.keymember?(headers, "authorization", 0)
-
-    cond do
-      Enum.count([custom?, is_binary(bearer), not is_nil(username) or not is_nil(password)], & &1) >
-          1 ->
-        {:error, {:invalid_http_credentials, :mutually_exclusive}}
-
-      is_binary(bearer) and safe_value?(bearer) ->
-        {:ok, "Bearer " <> bearer}
-
-      is_binary(bearer) ->
-        {:error, {:invalid_http_credentials, :bearer_token}}
-
-      not is_nil(username) or not is_nil(password) ->
-        basic_authorization(scheme, username, password)
-
-      true ->
-        {:ok, nil}
-    end
-  end
-
-  defp basic_authorization("https", username, password)
-       when (is_nil(username) or is_binary(username)) and is_binary(password) do
-    username = username || "default"
-
-    if username != "" and not String.contains?(username, ":") and safe_value?(username) and
-         safe_value?(password),
-       do: {:ok, "Basic " <> Base.encode64(username <> ":" <> password)},
-       else: {:error, {:invalid_http_credentials, :basic}}
-  end
-
-  defp basic_authorization("http", _username, _password),
-    do: {:error, {:invalid_http_credentials, :https_required}}
-
-  defp basic_authorization(_scheme, _username, _password),
-    do: {:error, {:invalid_http_credentials, :username_password}}
-
-  defp put_authorization(headers, nil), do: headers
-
-  defp put_authorization(headers, value),
-    do: List.keystore(headers, "authorization", 0, {"authorization", value})
-
-  defp safe_header?(name, value), do: name != "" and safe_value?(name) and safe_value?(value)
-  defp safe_value?(value), do: not String.contains?(value, ["\r", "\n"])
 end

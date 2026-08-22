@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.11.13 - 2026-08-23
+
+- Preserve absolute request deadlines across the HTTP coordinator boundary and
+  make synchronous caller death and asynchronous cancellation release monitored
+  admission leases without exceeding the configured concurrency bound.
+- Reject malformed HTTP options, duplicate or unsafe request headers, ambiguous
+  typed-map responses, malformed server error metadata, and oversized raw
+  binary payloads before JSON/Base64 allocation without raising.
+- Keep generic PING payload behavior aligned with native TCP, fail HTTP event
+  waits locally, and add direct HTTP/1.1 keep-alive and cancellation coverage.
+- Support long-lived blocking commands and mixed ordered pipelines through the
+  HTTP gateway. Finite sequential waits extend the implicit SDK deadline,
+  `BLOCK 0` removes it, and explicit request deadlines remain authoritative.
+- Validate the preserved native protocol v1 and FerricStore `~> 0.11.4`
+  compatibility floor against the immutable FerricStore 0.11.10 Quay image.
 
 ## 0.11.12 - 2026-08-22
 

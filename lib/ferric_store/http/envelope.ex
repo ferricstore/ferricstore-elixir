@@ -81,15 +81,19 @@ defmodule FerricStore.HTTP.Envelope do
 
   defp encode_value(value, _depth), do: {:error, {:invalid_http_value, value}}
 
-  defp encode_list(values, depth) do
-    Enum.reduce_while(values, {:ok, []}, fn value, {:ok, acc} ->
-      case encode_value(value, depth) do
-        {:ok, encoded} -> {:cont, {:ok, [encoded | acc]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> reverse_ok()
+  defp encode_list(values, depth), do: encode_list(values, depth, [])
+
+  defp encode_list([], _depth, acc), do: {:ok, Enum.reverse(acc)}
+
+  defp encode_list([value | values], depth, acc) do
+    case encode_value(value, depth) do
+      {:ok, encoded} -> encode_list(values, depth, [encoded | acc])
+      {:error, _reason} = error -> error
+    end
   end
+
+  defp encode_list(_improper, _depth, _acc),
+    do: {:error, {:invalid_http_value, :improper_list}}
 
   defp encode_pairs(pairs, depth) do
     Enum.reduce_while(pairs, {:ok, [], MapSet.new()}, fn {key, value}, {:ok, acc, seen} ->
@@ -108,12 +112,16 @@ defmodule FerricStore.HTTP.Envelope do
   defp decode_value(_value, depth) when depth > @max_depth,
     do: {:error, {:invalid_http_response, :maximum_depth}}
 
-  defp decode_value(%{@bytes => encoded} = marker, _depth) when map_size(marker) == 1 do
+  defp decode_value(%{@bytes => encoded} = marker, _depth)
+       when map_size(marker) == 1 and is_binary(encoded) do
     case Base.decode64(encoded) do
       {:ok, value} -> {:ok, value}
       :error -> {:error, {:invalid_http_response, :invalid_base64}}
     end
   end
+
+  defp decode_value(%{@bytes => _invalid} = marker, _depth) when map_size(marker) == 1,
+    do: {:error, {:invalid_http_response, :invalid_base64}}
 
   defp decode_value(%{@map => pairs} = marker, depth) when map_size(marker) == 1,
     do: decode_map(pairs, depth + 1)
@@ -131,9 +139,11 @@ defmodule FerricStore.HTTP.Envelope do
     Enum.reduce_while(pairs, {:ok, %{}}, fn
       [key, value], {:ok, acc} ->
         with {:ok, key} <- decode_value(key, depth),
+             false <- Map.has_key?(acc, key),
              {:ok, value} <- decode_value(value, depth) do
           {:cont, {:ok, Map.put(acc, key, value)}}
         else
+          true -> {:halt, {:error, {:invalid_http_response, :duplicate_map_key}}}
           {:error, _reason} = error -> {:halt, error}
         end
 

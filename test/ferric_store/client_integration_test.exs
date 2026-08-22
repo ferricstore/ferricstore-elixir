@@ -118,6 +118,28 @@ defmodule FerricStore.ClientIntegrationTest do
     assert 1 = FerricStore.command(client, "XLEN", [second])
   end
 
+  @tag @http_sdk_integration_tag
+  test "HTTP executes normal and blocking commands in one ordered pipeline", %{client: client} do
+    key = unique("sdk-http-blocking-pipeline")
+    producer = start_sdk_client("blocking-producer")
+
+    on_exit(fn -> FerricStore.command(client, "DEL", [key]) end)
+
+    wake =
+      Task.async(fn ->
+        Process.sleep(100)
+        FerricStore.command(producer, "RPUSH", [key, "ready"])
+      end)
+
+    assert [
+             ["ok", "PONG"],
+             ["ok", [^key, "ready"]],
+             ["ok", "PONG"]
+           ] = FerricStore.pipeline(client, [["PING"], ["BLPOP", key, "0"], ["PING"]])
+
+    assert 1 = Task.await(wake, 1_000)
+  end
+
   test "compact Pub/Sub pipelines publish across channels", %{client: client} do
     prefix = "elixir-sdk:pubsub-pipeline:#{unique("live")}:"
 

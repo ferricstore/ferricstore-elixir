@@ -1,8 +1,9 @@
 defmodule FerricStore.HTTP.Command do
   @moduledoc false
 
-  alias FerricStore.HTTP.{Error, Response, Transport}
-  alias FerricStore.Protocol.{CommandSpec, PipelineCommand, PipelineRequest}
+  alias FerricStore.HTTP.{CommandDeadline, Error, Options, Response, Transport}
+  alias FerricStore.Protocol.{CommandName, CommandSpec, PipelineCommand, PipelineRequest}
+  alias FerricStore.Types
 
   @pipeline_opcode CommandSpec.fetch!(:pipeline).opcode
   @command_exec_opcode CommandSpec.fetch!(:command_exec).opcode
@@ -13,22 +14,27 @@ defmodule FerricStore.HTTP.Command do
     UNSUBSCRIBE_EVENTS
   ))
   @session_only MapSet.new(~w(
-    AUTH CLIENT HELLO QUIT SELECT MULTI EXEC DISCARD WATCH UNWATCH SUBSCRIBE
-    UNSUBSCRIBE PSUBSCRIBE PUNSUBSCRIBE BLPOP BRPOP BLMOVE BLMPOP XREAD XREADGROUP
+    ASKING AUTH CLIENT HELLO QUIT RESET SELECT MULTI EXEC DISCARD WATCH UNWATCH MONITOR
+    READONLY READWRITE REPLCONF SYNC PSYNC SUBSCRIBE UNSUBSCRIBE PSUBSCRIBE PUNSUBSCRIBE
+    SSUBSCRIBE SUNSUBSCRIBE
   ))
 
   @spec disposition(binary(), non_neg_integer()) :: :supported | :native_only
   def disposition(name, _opcode) when is_binary(name) do
-    if MapSet.member?(@native_only, name), do: :native_only, else: :supported
+    if raw_native_only?(name), do: :native_only, else: :supported
   end
 
   @spec execute(struct(), term(), timeout()) :: term()
-  def execute(config, message, timeout) do
-    case prepare(message) do
-      {:single, command} -> execute_single(config, command, timeout)
-      {:pipeline, commands} -> execute_pipeline(config, commands, timeout)
-      {:group, command, indexes} -> execute_group(config, command, indexes, timeout)
-      {:error, _reason} = error -> error
+  def execute(%Options{} = config, message, timeout) do
+    budget = CommandDeadline.new(config, message, timeout)
+
+    with :ok <- CommandDeadline.ensure_active(budget) do
+      case prepare(message) do
+        {:single, command} -> execute_single(config, command, budget)
+        {:pipeline, commands} -> execute_pipeline(config, commands, budget)
+        {:group, command, indexes} -> execute_group(config, command, indexes, budget)
+        {:error, _reason} = error -> error
+      end
     end
   end
 
@@ -42,7 +48,7 @@ defmodule FerricStore.HTTP.Command do
     do: prepare_command_exec(payload)
 
   defp prepare({:request, @ping_opcode, payload, _context}) do
-    {:single, ["PING", Map.get(payload, "message", "PONG")]}
+    {:single, ["PING", Types.get(payload, "message", "PONG")]}
   end
 
   defp prepare({:request, opcode, payload, _context}), do: prepare_typed(opcode, payload)
@@ -77,11 +83,15 @@ defmodule FerricStore.HTTP.Command do
 
   defp prepare_command_exec(%{"command" => command, "args" => args})
        when is_binary(command) and is_list(args) do
-    normalized = String.upcase(command)
+    case CommandName.normalize(command) do
+      {:ok, normalized} ->
+        if raw_native_only?(normalized),
+          do: unsupported(normalized),
+          else: {:single, [command | args]}
 
-    if raw_native_only?(normalized),
-      do: unsupported(normalized),
-      else: {:single, [command | args]}
+      {:error, _reason} ->
+        unsupported(:invalid_command_exec)
+    end
   end
 
   defp prepare_command_exec(_payload), do: unsupported(:invalid_command_exec)
@@ -120,22 +130,28 @@ defmodule FerricStore.HTTP.Command do
     end
   end
 
-  defp execute_single(config, command, timeout) do
-    with {:ok, status, headers, envelope} <- Transport.post(config, [command], timeout),
-         {:ok, [result]} <- Response.values(status, envelope, 1, headers) do
+  defp execute_single(config, command, budget) do
+    with :ok <- CommandDeadline.ensure_active(budget),
+         {:ok, status, headers, envelope} <- Transport.post(config, [command], budget),
+         {:ok, [result]} <- Response.values(status, envelope, 1, headers),
+         :ok <- CommandDeadline.ensure_active(budget) do
       result
     end
   end
 
-  defp execute_pipeline(config, commands, timeout) do
-    with {:ok, status, headers, envelope} <- Transport.post(config, commands, timeout),
-         {:ok, values} <- Response.values(status, envelope, length(commands), headers) do
-      {:ok, Enum.map(values, &pipeline_pair/1)}
+  defp execute_pipeline(config, commands, budget) do
+    with :ok <- CommandDeadline.ensure_active(budget),
+         {:ok, status, headers, envelope} <- Transport.post(config, commands, budget),
+         {:ok, values} <- Response.values(status, envelope, length(commands), headers),
+         :ok <- CommandDeadline.ensure_active(budget) do
+      values
+      |> Enum.map(&pipeline_pair/1)
+      |> pipeline_result(budget)
     end
   end
 
-  defp execute_group(config, command, indexes, timeout) do
-    case execute_single(config, command, timeout) do
+  defp execute_group(config, command, indexes, budget) do
+    case execute_single(config, command, budget) do
       {:ok, value} -> {:ok, [%{indexes: indexes, value: value}]}
       {:error, _reason} = error -> error
     end
@@ -143,6 +159,10 @@ defmodule FerricStore.HTTP.Command do
 
   defp pipeline_pair({:ok, value}), do: ["ok", value]
   defp pipeline_pair({:error, error}), do: ["error", error]
+
+  defp pipeline_result(values, budget) do
+    with :ok <- CommandDeadline.ensure_active(budget), do: {:ok, values}
+  end
 
   defp indexes(0), do: []
   defp indexes(count), do: Enum.to_list(0..(count - 1))
@@ -155,8 +175,9 @@ defmodule FerricStore.HTTP.Command do
     kind, reason -> {:error, {:http_payload_builder_failed, {kind, reason}}}
   end
 
-  defp raw_native_only?("CLIENT"), do: true
-  defp raw_native_only?(name), do: MapSet.member?(@session_only, name)
+  defp raw_native_only?(name) do
+    MapSet.member?(@native_only, name) or MapSet.member?(@session_only, name)
+  end
 
   defp unsupported(reason) do
     {:error,

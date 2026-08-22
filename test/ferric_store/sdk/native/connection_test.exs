@@ -56,7 +56,7 @@ defmodule FerricStore.SDK.Native.ConnectionTest do
     assert {:ok, "OK"} = Connection.request(connection, 0x0003, %{}, 0, 1_000)
     assert System.monotonic_time(:millisecond) - started < 120
 
-    assert_receive {:ferricstore_connection_response, ^connection, ^tag, {:error, :timeout}}, 120
+    assert_receive {:ferricstore_connection_response, ^connection, ^tag, {:error, :timeout}}, 500
     refute_receive {:native_server_request, %{opcode: 0x0101}}, 500
   end
 

@@ -2,18 +2,21 @@ defmodule FerricStore.HTTP.Transport do
   @moduledoc false
 
   alias FerricStore.{DeadlineBudget, DeadlineTask}
-  alias FerricStore.HTTP.{Envelope, Error, Options}
+  alias FerricStore.HTTP.{Envelope, Error, Options, RequestLimit}
 
   @redirect_statuses [301, 302, 303, 307, 308]
   @max_redirects 10
 
-  def post(%Options{} = config, commands, timeout) do
-    with :ok <- batch_limit(config, commands),
+  def post(%Options{} = config, commands, %DeadlineBudget{} = budget) do
+    with :ok <- DeadlineBudget.ensure_active(budget),
+         :ok <- batch_limit(config, commands),
+         :ok <- RequestLimit.preflight(commands, config.max_request_bytes),
          {:ok, body} <- Envelope.encode_commands(commands),
-         :ok <- request_limit(config, body) do
-      budget = DeadlineBudget.new(effective_timeout(timeout, config.timeout))
+         :ok <- request_limit(config, body),
+         :ok <- DeadlineBudget.ensure_active(budget) do
       run_request(config, body, budget)
     else
+      {:error, :timeout} -> Error.timeout()
       {:error, %Error{} = error} -> {:error, error}
       {:error, reason} -> Error.invalid(reason)
     end
@@ -182,8 +185,4 @@ defmodule FerricStore.HTTP.Transport do
       do: :ok,
       else: {:error, :request_too_large}
   end
-
-  defp effective_timeout(:infinity, configured), do: configured
-  defp effective_timeout(timeout, :infinity), do: timeout
-  defp effective_timeout(timeout, configured), do: min(timeout, configured)
 end
