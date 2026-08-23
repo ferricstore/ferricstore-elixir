@@ -13,7 +13,7 @@ defmodule FerricStore.Architecture.DocumentationContractTest do
   end
 
   test "the release requires the projection-capable FerricStore beta without changing wire v1" do
-    assert Mix.Project.config()[:version] == "0.11.13"
+    assert Mix.Project.config()[:version] == "0.11.14"
     assert FerricStore.minimum_server_version() == "0.11.4"
     assert FerricStore.SDK.minimum_server_version() == "0.11.4"
     assert FerricStore.server_version_requirement() == "~> 0.11.4"
@@ -21,7 +21,7 @@ defmodule FerricStore.Architecture.DocumentationContractTest do
     assert FerricStore.Compatibility.protocol_version() == 1
 
     compatibility = File.read!(Path.join(@root, "lib/ferric_store/compatibility.ex"))
-    assert compatibility =~ "SDK 0.11.13 requires server"
+    assert compatibility =~ "SDK 0.11.14 requires server"
 
     for path <- ["README.md", "docs/quickstart.md"] do
       assert path |> then(&File.read!(Path.join(@root, &1))) =~ "FerricStore `~> 0.11.4`"

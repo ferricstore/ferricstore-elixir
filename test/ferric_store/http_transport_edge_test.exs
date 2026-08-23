@@ -1,50 +1,53 @@
 defmodule FerricStore.HTTP2TestHandler do
   @moduledoc false
 
-  def init(request, owner) do
-    {:ok, _body, request} = :cowboy_req.read_body(request)
-    send(owner, {:http_version, :cowboy_req.version(request)})
-    send(owner, {:http_authorization, :cowboy_req.header("authorization", request)})
+  def init(owner), do: owner
+
+  def call(conn, owner) do
+    {:ok, _body, conn} = Plug.Conn.read_body(conn)
+    send(owner, {:http_version, Plug.Conn.get_http_protocol(conn)})
+
+    send(
+      owner,
+      {:http_authorization, List.first(Plug.Conn.get_req_header(conn, "authorization"))}
+    )
 
     response = %{
       "encoding" => "ferricstore-json-v1",
       "results" => [%{"status" => "ok", "value" => "PONG"}]
     }
 
-    request =
-      :cowboy_req.reply(
-        200,
-        %{"content-type" => "application/json"},
-        Jason.encode!(response),
-        request
-      )
-
-    {:ok, request, owner}
+    conn
+    |> Plug.Conn.put_resp_content_type("application/json")
+    |> Plug.Conn.send_resp(200, Jason.encode!(response))
   end
 end
 
 defmodule FerricStore.HTTPSlowTestHandler do
   @moduledoc false
 
-  def init(request, counter) do
+  def init(counter), do: counter
+
+  def call(conn, counter) do
     request_number = Agent.get_and_update(counter, &{&1, &1 + 1})
     if request_number == 1, do: Process.sleep(150)
-    {:ok, _body, request} = :cowboy_req.read_body(request)
+    {:ok, _body, conn} = Plug.Conn.read_body(conn)
 
     response = %{
       "encoding" => "ferricstore-json-v1",
       "results" => [%{"status" => "ok", "value" => "PONG"}]
     }
 
-    request = :cowboy_req.reply(200, %{}, Jason.encode!(response), request)
-    {:ok, request, counter}
+    Plug.Conn.send_resp(conn, 200, Jason.encode!(response))
   end
 end
 
 defmodule FerricStore.HTTPAdmissionTestHandler do
   @moduledoc false
 
-  def init(request, %{counter: counter, owner: owner, tag: tag}) do
+  def init(state), do: state
+
+  def call(conn, %{counter: counter, owner: owner, tag: tag}) do
     request_number = :atomics.add_get(counter, 1, 1)
 
     if request_number == 1 do
@@ -52,49 +55,50 @@ defmodule FerricStore.HTTPAdmissionTestHandler do
       Process.sleep(200)
     end
 
-    {:ok, _body, request} = :cowboy_req.read_body(request)
+    {:ok, _body, conn} = Plug.Conn.read_body(conn)
 
     response = %{
       "encoding" => "ferricstore-json-v1",
       "results" => [%{"status" => "ok", "value" => "PONG"}]
     }
 
-    request = :cowboy_req.reply(200, %{}, Jason.encode!(response), request)
-    {:ok, request, owner}
+    Plug.Conn.send_resp(conn, 200, Jason.encode!(response))
   end
 end
 
 defmodule FerricStore.HTTPDeadlineTestHandler do
   @moduledoc false
 
-  def init(request, counter) do
+  def init(counter), do: counter
+
+  def call(conn, counter) do
     if :atomics.add_get(counter, 1, 1) == 2, do: Process.sleep(100)
-    {:ok, _body, request} = :cowboy_req.read_body(request)
+    {:ok, _body, conn} = Plug.Conn.read_body(conn)
 
     response = %{
       "encoding" => "ferricstore-json-v1",
       "results" => [%{"status" => "ok", "value" => "PONG"}]
     }
 
-    request = :cowboy_req.reply(200, %{}, Jason.encode!(response), request)
-    {:ok, request, counter}
+    Plug.Conn.send_resp(conn, 200, Jason.encode!(response))
   end
 end
 
 defmodule FerricStore.HTTPKeepAliveTestHandler do
   @moduledoc false
 
-  def init(request, owner) do
-    send(owner, {:http_peer, :cowboy_req.peer(request)})
-    {:ok, _body, request} = :cowboy_req.read_body(request)
+  def init(owner), do: owner
+
+  def call(conn, owner) do
+    send(owner, {:http_peer, Plug.Conn.get_peer_data(conn)})
+    {:ok, _body, conn} = Plug.Conn.read_body(conn)
 
     response = %{
       "encoding" => "ferricstore-json-v1",
       "results" => [%{"status" => "ok", "value" => "PONG"}]
     }
 
-    request = :cowboy_req.reply(200, %{}, Jason.encode!(response), request)
-    {:ok, request, owner}
+    Plug.Conn.send_resp(conn, 200, Jason.encode!(response))
   end
 end
 
@@ -168,27 +172,27 @@ defmodule FerricStore.HTTPTransportEdgeTest do
   alias FerricStore.SDK.Native.Client, as: NativeClient
 
   test "a real HTTP/2 connection executes concurrent SDK commands" do
-    reference = make_ref()
     files = FerricStore.HTTPTestTLS.files()
 
-    dispatch =
-      :cowboy_router.compile([
-        {:_, [{"/v1/commands", FerricStore.HTTP2TestHandler, self()}]}
-      ])
-
-    assert {:ok, _listener} =
-             :cowboy.start_tls(
-               reference,
-               %{socket_opts: [port: 0, certfile: files.certfile, keyfile: files.keyfile]},
-               %{env: %{dispatch: dispatch}, protocols: [:http2]}
+    assert {:ok, listener} =
+             Bandit.start_link(
+               certfile: files.certfile,
+               http_1_options: [enabled: false],
+               keyfile: files.keyfile,
+               plug: {FerricStore.HTTP2TestHandler, self()},
+               port: 0,
+               scheme: :https,
+               startup_log: false
              )
 
+    Process.unlink(listener)
+
     on_exit(fn ->
-      :cowboy.stop_listener(reference)
+      if Process.alive?(listener), do: Supervisor.stop(listener)
       File.rm_rf!(files.directory)
     end)
 
-    port = :ranch.get_port(reference)
+    {:ok, {_address, port}} = ThousandIsland.listener_info(listener)
 
     assert {:ok, client} =
              SDK.from_url("https://127.0.0.1:#{port}",
@@ -226,27 +230,11 @@ defmodule FerricStore.HTTPTransportEdgeTest do
 
   test "whole-request timeout covers a trickling response" do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
-    reference = make_ref()
-
-    dispatch =
-      :cowboy_router.compile([
-        {:_, [{"/v1/commands", FerricStore.HTTPSlowTestHandler, counter}]}
-      ])
-
-    assert {:ok, listener} =
-             :cowboy.start_clear(
-               reference,
-               %{socket_opts: [port: 0]},
-               %{env: %{dispatch: dispatch}, protocols: [:http]}
-             )
-
-    Process.unlink(listener)
-    on_exit(fn -> :cowboy.stop_listener(reference) end)
-    port = :ranch.get_port(reference)
-    assert {:ok, warm_client} = SDK.from_url("http://127.0.0.1:#{port}", timeout: 500)
+    url = start_clear_server(FerricStore.HTTPSlowTestHandler, counter)
+    assert {:ok, warm_client} = SDK.from_url(url, timeout: 500)
     assert {:ok, "PONG"} = SDK.ping(warm_client)
     assert :ok = SDK.close(warm_client)
-    assert {:ok, client} = SDK.from_url("http://127.0.0.1:#{port}", timeout: 50)
+    assert {:ok, client} = SDK.from_url(url, timeout: 50)
 
     assert {:error, %Error{reason: :timeout, retryable: true, safe_to_retry: false}} =
              SDK.ping(client)
@@ -370,13 +358,56 @@ defmodule FerricStore.HTTPTransportEdgeTest do
     assert :ok = SDK.close(client)
   end
 
-  test "Basic credentials require HTTPS and session commands fail before network IO" do
+  test "Basic credentials require HTTPS and connection-affine commands fail before network IO" do
     assert {:error, {:invalid_http_credentials, :https_required}} =
              SDK.from_url("http://127.0.0.1:1", username: "worker", password: "secret")
 
     assert {:ok, client} = SDK.from_url("http://127.0.0.1:1", bearer_token: "token")
 
-    for command <- ["MULTI", "RESET", "MONITOR", "READONLY", "SSUBSCRIBE"] do
+    for command <- [
+          "ASKING",
+          "AUTH",
+          "BACKPRESSURE",
+          "CLIENT",
+          "CLIENT.INFO",
+          "CLIENT.SETNAME",
+          "DISCARD",
+          "EVENT",
+          "EXEC",
+          "FETCH_OR_COMPUTE",
+          "FETCH_OR_COMPUTE_ERROR",
+          "FETCH_OR_COMPUTE_RESULT",
+          "GOAWAY",
+          "HELLO",
+          "MONITOR",
+          "MULTI",
+          "OPTIONS",
+          "PIPELINE",
+          "PSUBSCRIBE",
+          "PSYNC",
+          "PUNSUBSCRIBE",
+          "QUIT",
+          "READONLY",
+          "READWRITE",
+          "REPLCONF",
+          "RESET",
+          "ROUTE",
+          "ROUTE_BATCH",
+          "SANDBOX",
+          "SELECT",
+          "SHARDS",
+          "SSUBSCRIBE",
+          "STARTUP",
+          "SUBSCRIBE",
+          "SUBSCRIBE_EVENTS",
+          "SUNSUBSCRIBE",
+          "SYNC",
+          "UNSUBSCRIBE",
+          "UNSUBSCRIBE_EVENTS",
+          "UNWATCH",
+          "WATCH",
+          "WINDOW_UPDATE"
+        ] do
       assert {:error, %Error{error_code: "native_only"}} =
                FerricStore.command(client, command)
     end
@@ -442,22 +473,17 @@ defmodule FerricStore.HTTPTransportEdgeTest do
   end
 
   defp start_clear_server(handler, handler_state) do
-    reference = make_ref()
-
-    dispatch =
-      :cowboy_router.compile([
-        {:_, [{"/v1/commands", handler, handler_state}]}
-      ])
-
     {:ok, listener} =
-      :cowboy.start_clear(
-        reference,
-        %{socket_opts: [port: 0]},
-        %{env: %{dispatch: dispatch}, protocols: [:http]}
+      Bandit.start_link(
+        ip: {127, 0, 0, 1},
+        plug: {handler, handler_state},
+        port: 0,
+        startup_log: false
       )
 
     Process.unlink(listener)
-    on_exit(fn -> :cowboy.stop_listener(reference) end)
-    "http://127.0.0.1:#{:ranch.get_port(reference)}"
+    on_exit(fn -> if Process.alive?(listener), do: Supervisor.stop(listener) end)
+    {:ok, {_address, port}} = ThousandIsland.listener_info(listener)
+    "http://127.0.0.1:#{port}"
   end
 end

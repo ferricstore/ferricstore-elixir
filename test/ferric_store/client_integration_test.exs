@@ -20,10 +20,18 @@ defmodule FerricStore.ClientIntegrationTest do
 
   @moduletag :integration
   @docker_url System.get_env("FERRICSTORE_TEST_URL", "ferric://127.0.0.1:6388")
-  @http_sdk_integration_tag (case String.starts_with?(@docker_url, ["http://", "https://"]) do
+  @http_integration String.starts_with?(@docker_url, ["http://", "https://"])
+  @http_sdk_integration_tag (case @http_integration do
                                true -> :http_sdk_integration
                                false -> {:skip, "requires FERRICSTORE_TEST_URL=http(s)://..."}
                              end)
+  @native_session_tag (case @http_integration do
+                         true -> {:skip, "requires a connection-affine native session"}
+                         false -> :native_session_integration
+                       end)
+  # The released server deliberately has a finite execution budget. Keep the
+  # HTTP probe concurrent without turning it into an overload test.
+  @multiplex_request_count if(@http_integration, do: 16, else: 50)
 
   setup do
     client = FerricStore.connect!(connection_options("test"))
@@ -33,6 +41,7 @@ defmodule FerricStore.ClientIntegrationTest do
     {:ok, client: client}
   end
 
+  @tag @native_session_tag
   test "topology-aware SDK control requests cover the Docker native session surface" do
     client = start_sdk_client("control")
     key = unique("sdk-control")
@@ -184,29 +193,31 @@ defmodule FerricStore.ClientIntegrationTest do
     assert {:ok, ratelimit} = SDK.ratelimit_add(client, same_slot_key(tag, "rate"), 1_000, 10, 2)
     assert is_list(ratelimit) or is_map(ratelimit)
 
-    compute_key = same_slot_key(tag, "compute")
+    unless @http_integration do
+      compute_key = same_slot_key(tag, "compute")
 
-    assert {:ok, ["compute", _hint, compute_token]} =
-             SDK.fetch_or_compute(client, compute_key, 60_000)
+      assert {:ok, ["compute", _hint, compute_token]} =
+               SDK.fetch_or_compute(client, compute_key, 60_000)
 
-    assert {:ok, :ok} =
-             SDK.fetch_or_compute_result(
-               client,
-               compute_key,
-               compute_token,
-               "computed",
-               60_000
-             )
+      assert {:ok, :ok} =
+               SDK.fetch_or_compute_result(
+                 client,
+                 compute_key,
+                 compute_token,
+                 "computed",
+                 60_000
+               )
 
-    assert {:ok, ["hit", "computed"]} = SDK.fetch_or_compute(client, compute_key, 60_000)
+      assert {:ok, ["hit", "computed"]} = SDK.fetch_or_compute(client, compute_key, 60_000)
 
-    failed_compute_key = same_slot_key(tag, "compute-error")
+      failed_compute_key = same_slot_key(tag, "compute-error")
 
-    assert {:ok, ["compute", _hint, error_token]} =
-             SDK.fetch_or_compute(client, failed_compute_key, 60_000)
+      assert {:ok, ["compute", _hint, error_token]} =
+               SDK.fetch_or_compute(client, failed_compute_key, 60_000)
 
-    assert {:ok, :ok} =
-             SDK.fetch_or_compute_error(client, failed_compute_key, error_token, "failed")
+      assert {:ok, :ok} =
+               SDK.fetch_or_compute_error(client, failed_compute_key, error_token, "failed")
+    end
 
     hash_key = same_slot_key(tag, "hash")
 
@@ -403,7 +414,7 @@ defmodule FerricStore.ClientIntegrationTest do
   test "one client multiplexes concurrent requests", %{client: client} do
     prefix = unique("mux")
 
-    1..50
+    1..@multiplex_request_count
     |> Enum.map(fn index ->
       Task.async(fn -> FerricStore.set(client, "#{prefix}:#{index}", "v#{index}") end)
     end)
@@ -411,20 +422,20 @@ defmodule FerricStore.ClientIntegrationTest do
     |> Enum.each(fn value -> assert value == :ok end)
 
     values =
-      1..50
+      1..@multiplex_request_count
       |> Enum.map(fn index ->
         Task.async(fn -> FerricStore.get(client, "#{prefix}:#{index}") end)
       end)
       |> Task.await_many(30_000)
 
-    assert values == Enum.map(1..50, &"v#{&1}")
+    assert values == Enum.map(1..@multiplex_request_count, &"v#{&1}")
   end
 
   test "one client multiplexes async refs without spawning callers", %{client: client} do
     prefix = unique("async")
 
     refs =
-      Enum.map(1..50, fn index ->
+      Enum.map(1..@multiplex_request_count, fn index ->
         FerricStore.async_native(
           client,
           FerricStore.Protocol.opcode(:set),
@@ -437,7 +448,7 @@ defmodule FerricStore.ClientIntegrationTest do
     |> Enum.each(fn response -> assert response == "OK" end)
 
     refs =
-      Enum.map(1..50, fn index ->
+      Enum.map(1..@multiplex_request_count, fn index ->
         FerricStore.async_native(
           client,
           FerricStore.Protocol.opcode(:get),
@@ -446,7 +457,7 @@ defmodule FerricStore.ClientIntegrationTest do
       end)
 
     values = Enum.map(refs, &FerricStore.await(&1, 30_000))
-    assert values == Enum.map(1..50, &"v#{&1}")
+    assert values == Enum.map(1..@multiplex_request_count, &"v#{&1}")
   end
 
   test "hash helpers cover hset, hget, hmget, and hgetall", %{client: client} do

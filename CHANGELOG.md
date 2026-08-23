@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.14 - 2026-08-23
+
+- Run the complete HTTP-compatible integration surface against an authenticated
+  TLS listener in CI and release validation while preserving native-only
+  session coverage.
+- Replace the advisory-affected Cowboy/Cowlib test stack with Bandit and require
+  a clean Hex advisory audit in CI and release gates.
+- Document the reproducible HTTPS integration runner, keep its temporary TLS
+  directory owner-only, and delete the CA key before the container starts.
+- Reject sandbox and fetch-or-compute coordination commands locally over HTTP
+  because they require state retained by a native TCP connection.
+
 ## 0.11.13 - 2026-08-23
 
 - Preserve absolute request deadlines across the HTTP coordinator boundary and
