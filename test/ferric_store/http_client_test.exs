@@ -178,7 +178,7 @@ defmodule FerricStore.HTTPClientTest do
     end)
 
     assert {:ok, client} = SDK.from_url(context.url, timeout: 50)
-    assert nil == FerricStore.command(client, "BLPOP", ["jobs", "0.1"])
+    assert nil == FerricStore.command(client, "BLPOP", ["jobs", "0.3"])
     assert :ok = SDK.close(client)
   end
 

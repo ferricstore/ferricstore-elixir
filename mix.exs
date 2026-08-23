@@ -4,7 +4,7 @@ defmodule FerricStore.MixProject do
   def project do
     [
       app: :ferricstore_sdk,
-      version: "0.11.13",
+      version: "0.11.14",
       elixir: "~> 1.20",
       description: "Official Elixir SDK for FerricStore over native TCP and stateless HTTP.",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -40,7 +40,7 @@ defmodule FerricStore.MixProject do
   defp deps do
     [
       {:arch_test, "~> 0.3.1", only: [:dev, :test], runtime: false},
-      {:bypass, "~> 2.1", only: :test},
+      {:bandit, "~> 1.12.4", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false},
       {:finch, "~> 0.23.0"},

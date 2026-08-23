@@ -12,7 +12,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     env:
-      FERRICSTORE_TEST_IMAGE: "quay.io/ferricstore/ferricstore:0.11.10@sha256:3af390b7429ea3fea2983938eb7adcdd3e8005d06c67473f769f29ebd48e8ab3"
+      FERRICSTORE_TEST_IMAGE: "quay.io/ferricstore/ferricstore:0.11.11@sha256:d9f488539f0d6c1a513d2315e7a9c2947cc795b393f3774c9de8ba5e5b5c21b5"
     steps:
       - uses: actions/checkout@v5
       - uses: erlef/setup-beam@v1
@@ -20,6 +20,7 @@ jobs:
           otp-version: "29"
           elixir-version: "1.20"
       - run: mix deps.get
+      - run: mix hex.audit
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
       - run: mix credo --strict
@@ -70,6 +71,10 @@ jobs:
       - name: Stop FerricStore
         if: always()
         run: docker stop ferricstore-sdk-contract || true
+      - name: Run authenticated TLS HTTP integration
+        env:
+          FERRICSTORE_TEST_IMAGE: "quay.io/ferricstore/ferricstore:0.11.11@sha256:d9f488539f0d6c1a513d2315e7a9c2947cc795b393f3774c9de8ba5e5b5c21b5"
+        run: scripts/test_http_integration.sh
 
   publish:
     needs: validate

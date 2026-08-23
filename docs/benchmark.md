@@ -58,7 +58,7 @@ mix run bench/flow_query_client_benchmark.exs \
 Environment:
 
 - Client: local macOS
-- Server: immutable FerricStore 0.11.10 multi-arch release image
+- Server: immutable FerricStore 0.11.11 multi-arch release image
 - Protocol: native `ferric://`
 - Server URL: `ferric://127.0.0.1:6398`
 - Protected mode disabled for local benchmark only
@@ -71,7 +71,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6398 \
   -p 6398:6388 \
-  quay.io/ferricstore/ferricstore:0.11.10@sha256:3af390b7429ea3fea2983938eb7adcdd3e8005d06c67473f769f29ebd48e8ab3
+  quay.io/ferricstore/ferricstore:0.11.11@sha256:d9f488539f0d6c1a513d2315e7a9c2947cc795b393f3774c9de8ba5e5b5c21b5
 ```
 
 ## KV throughput

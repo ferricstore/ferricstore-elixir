@@ -2,9 +2,9 @@
 
 Elixir SDK for FerricStore and FerricFlow over native TCP and stateless HTTP.
 
-Status: public beta. SDK `0.11.13` requires FerricStore `~> 0.11.4`, negotiates
+Status: public beta. SDK `0.11.14` requires FerricStore `~> 0.11.4`, negotiates
 compact Stream mode 34 and compact Pub/Sub mode 35 with FerricStore 0.11.8 and
-later, and is validated against FerricStore 0.11.10. Native wire framing and the
+later, and is validated against FerricStore 0.11.11. Native wire framing and the
 generic compatibility paths remain protocol v1. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
@@ -31,7 +31,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.11.13"}
+    {:ferricstore_sdk, "~> 0.11.14"}
   ]
 end
 ```
@@ -45,7 +45,7 @@ mix test
 
 ### 2. Start FerricStore
 
-For local development, run the same immutable FerricStore 0.11.10 image used by
+For local development, run the same immutable FerricStore 0.11.11 image used by
 the SDK integration workflow:
 
 ```bash
@@ -54,7 +54,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  quay.io/ferricstore/ferricstore:0.11.10@sha256:3af390b7429ea3fea2983938eb7adcdd3e8005d06c67473f769f29ebd48e8ab3
+  quay.io/ferricstore/ferricstore:0.11.11@sha256:d9f488539f0d6c1a513d2315e7a9c2947cc795b393f3774c9de8ba5e5b5c21b5
 ```
 
 The SDK examples assume:
@@ -114,6 +114,19 @@ deadline when an unbounded wait is not intended. Redirects retain
 authentication and custom headers across origins; configure only endpoints and
 redirect targets you trust. The SDK owns HTTP framing headers such as `host`,
 `content-length`, and `transfer-encoding`; custom headers cannot override them.
+
+Run the complete HTTP-compatible integration surface through a real TLS
+listener with ACL authentication using:
+
+```bash
+FERRICSTORE_TEST_IMAGE=quay.io/ferricstore/ferricstore:0.11.11@sha256:d9f488539f0d6c1a513d2315e7a9c2947cc795b393f3774c9de8ba5e5b5c21b5 \
+  scripts/test_http_integration.sh
+```
+
+The runner creates a private CA, verifies that unauthenticated access and a
+restricted user's forbidden `SET` are rejected, and supplies
+`FERRICSTORE_USERNAME`, `FERRICSTORE_PASSWORD`, and `FERRICSTORE_CA_FILE`.
+Connection-affine tests remain in the native integration job.
 
 ### 4. Query durable runs
 
