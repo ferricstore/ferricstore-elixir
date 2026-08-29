@@ -673,13 +673,7 @@ defmodule FerricStore.SDK.Native.ClientBatchTest do
         endpoint_policy: :any
       )
 
-    on_exit(fn ->
-      SDK.close(client)
-
-      Enum.each([seed_server, first_data, second_data], fn server ->
-        if Process.alive?(server), do: GenServer.stop(server, :normal)
-      end)
-    end)
+    on_exit(fn -> SDK.close(client) end)
 
     keys = [key_in_slots(0..511), key_in_slots(512..1023)]
 
