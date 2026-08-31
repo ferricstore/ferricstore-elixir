@@ -859,6 +859,14 @@ defmodule FerricStore.ProtocolTest do
              Protocol.decode_response_body(0, Protocol.opcode(:flow_claim_due), body)
   end
 
+  test "decodes the singular jobs-compact step_continue result as a native value" do
+    job = ["flow-1", "tenant-a", "lease-2", 8]
+    body = IO.iodata_to_binary([<<0::16>>, Protocol.encode_value(job)])
+
+    assert {:ok, ^job} =
+             Protocol.decode_response_body(0, Protocol.opcode(:flow_step_continue), body)
+  end
+
   test "decodes compact claim_due response with attributes" do
     attrs = Protocol.encode_value(%{"tenant" => "acme"})
 

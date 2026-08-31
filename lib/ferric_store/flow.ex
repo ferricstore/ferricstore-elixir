@@ -1,14 +1,9 @@
 defmodule FerricStore.Flow do
-  @moduledoc """
-  High-level FerricFlow command helpers.
-
-  Functions build the same native command arguments as the Python SDK while
-  keeping defaults simple: create and terminal commands return acknowledgements,
-  while claim returns compact jobs with attributes.
-  """
+  @moduledoc "High-level FerricFlow helpers using native commands and compact claim defaults."
 
   alias FerricStore.Flow.{
     BatchCommands,
+    DurableStep,
     LifecycleCommands,
     Payload,
     PolicyCommand,
@@ -26,9 +21,13 @@ defmodule FerricStore.Flow do
   def cancel(client, id, opts), do: LifecycleCommands.cancel(client, id, opts)
   def signal(client, id, opts), do: LifecycleCommands.signal(client, id, opts)
 
+  @doc "Atomically advances a claim; uncertain commits return `FerricStore.Flow.DurableMutationOutcomeUnknownError`."
+  def advance(client, job, opts), do: DurableStep.advance(client, job, opts)
+
+  @doc "Runs and journals a named closure; see `FerricStore.Flow.DurableMutationOutcomeUnknownError` for recovery."
+  def step(client, job, opts), do: DurableStep.step(client, job, opts)
   def create_many(client, items, opts), do: BatchCommands.create_many(client, items, opts)
   def complete_many(client, jobs, opts \\ []), do: BatchCommands.complete_many(client, jobs, opts)
-
   def get(client, id, opts \\ []), do: QueryCommands.get(client, id, opts)
   def list(client, opts \\ []), do: QueryCommands.list(client, opts)
   def history(client, id, opts \\ []), do: QueryCommands.history(client, id, opts)

@@ -2,7 +2,7 @@ defmodule FerricStore.Compatibility do
   @moduledoc """
   FerricStore server and native wire compatibility for this SDK release.
 
-  FerricStore 0.11 is a breaking beta API contract. SDK 0.11.14 requires server
+  FerricStore 0.11 is a breaking beta API contract. SDK 0.12.0 requires server
   `~> 0.11.4`; native wire framing remains protocol v1.
   """
 

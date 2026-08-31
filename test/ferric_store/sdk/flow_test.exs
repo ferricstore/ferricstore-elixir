@@ -7,6 +7,19 @@ defmodule FerricStore.SDK.FlowTest do
   alias FerricStore.SDK.Flow
   alias FerricStore.Test.ClientRuntime
 
+  test "step_continue remains available as a deprecated low-level API" do
+    {:docs_v1, _, _, _, _, _, docs} = Code.fetch_docs(Flow)
+
+    assert {{:function, :step_continue, 3}, _, _, :none, metadata} =
+             Enum.find(docs, fn
+               {{:function, :step_continue, 3}, _, _, _, _} -> true
+               _other -> false
+             end)
+
+    assert metadata[:deprecated] ==
+             "Use FerricStore.Flow.advance/3 or FerricStore.Flow.step/3"
+  end
+
   defmodule CaptureClient do
     use GenServer
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.12.0 - 2026-08-31
+
+- Add chainable `FerricStore.Flow.advance/3` and durable
+  `FerricStore.Flow.step/3`, with workflow-configured convenience wrappers,
+  stable cross-SDK journal names, codec-consistent replay, strict lease and
+  fencing validation, and a deprecated low-level `step_continue` migration
+  path.
+- Fail closed on malformed journal references, missing committed values, and
+  incomplete full-record responses so a durable closure cannot be rerun from
+  ambiguous metadata.
+- Expose `FerricStore.Flow.DurableMutationOutcomeUnknownError` when a
+  `FLOW.STEP_CONTINUE` response is lost or invalid, without automatically
+  retrying a mutation that may already have committed.
+- Cover the APIs with focused command tests and live native TCP, TLS HTTP/1.1,
+  and HTTP/2 integration tests while keeping the existing command surface
+  unchanged.
+- Exercise live lease takeover, stale-worker fencing, external-effect
+  idempotency, committed replay, and signal-driven waiting handoff on every
+  supported transport.
+
 ## 0.11.14 - 2026-08-23
 
 - Run the complete HTTP-compatible integration surface against an authenticated
