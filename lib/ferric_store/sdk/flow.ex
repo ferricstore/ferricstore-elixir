@@ -1,12 +1,10 @@
 defmodule FerricStore.SDK.Flow do
   @moduledoc """
   Native FerricStore Flow commands.
-
   Functions accept the native typed-map payload documented by the protocol.
   Id-addressed payloads are routed to the relevant shard leader; keyless
   aggregate commands use the control connection.
   """
-
   alias FerricStore.Flow.{PolicyCommand, PolicyResponse, QueryRequest}
   alias FerricStore.FlowRouting
   alias FerricStore.Protocol.Opcodes
@@ -85,9 +83,11 @@ defmodule FerricStore.SDK.Flow do
   @opcodes Map.new(@flow_commands, fn {function, opcode_name} ->
              {function, Opcodes.fetch!(opcode_name)}
            end)
-
   for {function, opcode_name} <- @flow_commands,
       function not in [:policy_set, :policy_get, :query] do
+    if function == :step_continue,
+      do: @deprecated("Use FerricStore.Flow.advance/3 or FerricStore.Flow.step/3")
+
     def unquote(function)(client, payload \\ %{}, opts \\ []) do
       request(client, unquote(opcode_name), payload, opts)
     end

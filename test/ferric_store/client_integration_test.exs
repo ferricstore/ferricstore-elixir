@@ -582,6 +582,228 @@ defmodule FerricStore.ClientIntegrationTest do
     )
   end
 
+  test "durable step replays its result and advance refreshes lease credentials", %{
+    client: client
+  } do
+    id = unique("durable-step-flow")
+    type = unique("durable-step-type")
+    partition_key = unique("durable-step-partition")
+    worker = unique("durable-step-worker")
+
+    assert_okish(
+      FerricStore.Flow.create(client, id,
+        type: type,
+        state: "charge",
+        partition_key: partition_key
+      )
+    )
+
+    [job | _] =
+      claim_one(client, type, "charge", worker,
+        partition_key: partition_key,
+        include_state: true
+      )
+
+    first_lease = job["lease_token"]
+    first_fence = job["fencing_token"]
+    result = %{charge_id: "ch_123", amount: 150}
+
+    assert {advanced, ^result} =
+             FerricStore.Flow.step(client, job,
+               name: "charge-customer:v1",
+               run: fn -> result end,
+               to_state: "schedule_warning",
+               codec: FerricStore.Codec.Term
+             )
+
+    assert advanced["run_state"] == "schedule_warning"
+    refute advanced["lease_token"] == first_lease
+    assert advanced["fencing_token"] > first_fence
+
+    assert {replayed, ^result} =
+             FerricStore.Flow.step(client, advanced,
+               name: "charge-customer:v1",
+               run: fn -> flunk("committed durable step ran twice") end,
+               to_state: "schedule_warning",
+               codec: FerricStore.Codec.Term
+             )
+
+    assert replayed["lease_token"] == advanced["lease_token"]
+    assert replayed["fencing_token"] == advanced["fencing_token"]
+
+    assert refreshed =
+             FerricStore.Flow.advance(client, replayed, to_state: "warning_scheduled")
+
+    assert refreshed["run_state"] == "warning_scheduled"
+    refute refreshed["lease_token"] == replayed["lease_token"]
+    assert refreshed["fencing_token"] > replayed["fencing_token"]
+
+    assert {:error, %FerricStore.Error{}} =
+             FerricStore.Flow.advance(client, job, to_state: "must_not_commit")
+  end
+
+  test "a second worker reclaims an uncommitted step and deduplicates its external effect", %{
+    client: client
+  } do
+    id = unique("durable-takeover-flow")
+    type = unique("durable-takeover-type")
+    partition_key = unique("durable-takeover-partition")
+    step_name = "charge-customer:v1"
+    idempotency_key = "#{id}:#{step_name}"
+    provider = start_supervised!({Agent, fn -> %{calls: 0, created: 0, effects: %{}} end})
+
+    assert_okish(
+      FerricStore.Flow.create(client, id,
+        type: type,
+        state: "charge",
+        partition_key: partition_key
+      )
+    )
+
+    worker_a =
+      Task.async(fn ->
+        [job | _] =
+          claim_one(client, type, "charge", unique("worker-a"),
+            partition_key: partition_key,
+            include_state: true,
+            lease_ms: 150
+          )
+
+        {job, external_effect(provider, idempotency_key)}
+      end)
+
+    {job_a, first_effect} = Task.await(worker_a, 5_000)
+    Process.sleep(250)
+
+    worker_b =
+      Task.async(fn ->
+        [job | _] =
+          claim_one(client, type, "charge", unique("worker-b"),
+            partition_key: partition_key,
+            include_state: true,
+            reclaim_expired: true,
+            reclaim_ratio: 100
+          )
+
+        {advanced, result} =
+          FerricStore.Flow.step(client, job,
+            name: step_name,
+            run: fn -> external_effect(provider, idempotency_key) end,
+            to_state: "charged",
+            codec: FerricStore.Codec.Term
+          )
+
+        {job, advanced, result}
+      end)
+
+    {job_b, advanced, second_effect} = Task.await(worker_b, 5_000)
+
+    assert job_b["lease_token"] != job_a["lease_token"]
+    assert job_b["fencing_token"] > job_a["fencing_token"]
+    assert job_b["run_state"] == "charge"
+    assert advanced["run_state"] == "charged"
+    assert advanced["lease_token"] != job_b["lease_token"]
+    assert advanced["fencing_token"] > job_b["fencing_token"]
+    assert second_effect == first_effect
+    assert %{calls: 2, created: 1} = external_effect_stats(provider)
+
+    assert {:error, %FerricStore.Error{}} =
+             FerricStore.Flow.advance(client, job_a, to_state: "stale_must_not_commit")
+  end
+
+  test "a signaled waiting workflow releases worker A and resumes on worker B", %{
+    client: client
+  } do
+    id = unique("durable-waiting-flow")
+    type = unique("durable-waiting-type")
+    partition_key = unique("durable-waiting-partition")
+    executions = start_supervised!({Agent, fn -> 0 end})
+
+    assert_okish(
+      FerricStore.Flow.create(client, id,
+        type: type,
+        state: "prepare_wait",
+        partition_key: partition_key
+      )
+    )
+
+    worker_a =
+      Task.async(fn ->
+        [job | _] =
+          claim_one(client, type, "prepare_wait", unique("waiting-worker-a"),
+            partition_key: partition_key,
+            include_state: true
+          )
+
+        {waiting_claim, :prepared} =
+          FerricStore.Flow.step(client, job,
+            name: "prepare-wait:v1",
+            run: fn ->
+              Agent.update(executions, &(&1 + 1))
+              :prepared
+            end,
+            to_state: "waiting_for_signal",
+            codec: FerricStore.Codec.Term
+          )
+
+        {replayed_claim, :prepared} =
+          FerricStore.Flow.step(client, waiting_claim,
+            name: "prepare-wait:v1",
+            run: fn -> flunk("committed waiting step ran twice") end,
+            to_state: "waiting_for_signal",
+            codec: FerricStore.Codec.Term
+          )
+
+        assert_okish(
+          FerricStore.Flow.transition(client, id,
+            from_state: "running",
+            to_state: "waiting_for_signal",
+            partition_key: partition_key,
+            lease_token: replayed_claim["lease_token"],
+            fencing_token: replayed_claim["fencing_token"]
+          )
+        )
+
+        replayed_claim
+      end)
+
+    released_claim = Task.await(worker_a, 5_000)
+    waiting_record = FerricStore.Flow.get(client, id, partition_key: partition_key)
+    assert waiting_record["state"] == "waiting_for_signal"
+    assert Agent.get(executions, & &1) == 1
+
+    assert_okish(
+      FerricStore.Flow.signal(client, id,
+        signal: "approved",
+        if_state: "waiting_for_signal",
+        transition_to: "ready_after_signal",
+        partition_key: partition_key,
+        idempotency_key: "#{id}:approved"
+      )
+    )
+
+    worker_b =
+      Task.async(fn ->
+        [job | _] =
+          claim_one(client, type, "ready_after_signal", unique("waiting-worker-b"),
+            partition_key: partition_key,
+            include_state: true
+          )
+
+        {job, FerricStore.Flow.advance(client, job, to_state: "continued")}
+      end)
+
+    {job_b, continued} = Task.await(worker_b, 5_000)
+    assert job_b["lease_token"] != released_claim["lease_token"]
+    assert job_b["fencing_token"] > released_claim["fencing_token"]
+    assert job_b["run_state"] == "ready_after_signal"
+    assert continued["run_state"] == "continued"
+    assert Agent.get(executions, & &1) == 1
+
+    assert {:error, %FerricStore.Error{}} =
+             FerricStore.Flow.advance(client, released_claim, to_state: "stale_must_not_commit")
+  end
+
   test "flow many helpers cover create_many and complete_many", %{client: client} do
     type = unique("many-type")
     worker = unique("many-worker")
@@ -1499,7 +1721,9 @@ defmodule FerricStore.ClientIntegrationTest do
           url: @docker_url,
           username: System.get_env("FERRICSTORE_USERNAME") || "default",
           password: System.fetch_env!("FERRICSTORE_PASSWORD"),
-          http2: System.get_env("FERRICSTORE_HTTP2", "true") == "true"
+          http2: System.get_env("FERRICSTORE_HTTP2", "true") == "true",
+          max_connections: 16,
+          max_concurrent_requests: 32
         ]
       else
         [
@@ -1804,6 +2028,27 @@ defmodule FerricStore.ClientIntegrationTest do
         assert_eventually(fun, attempts - 1, interval_ms)
       end
   end
+
+  defp external_effect(provider, idempotency_key) do
+    Agent.get_and_update(provider, fn state ->
+      state = Map.update!(state, :calls, &(&1 + 1))
+
+      case Map.fetch(state.effects, idempotency_key) do
+        {:ok, effect} ->
+          {effect, state}
+
+        :error ->
+          effect = %{charge_id: "charge:#{idempotency_key}"}
+
+          {effect,
+           state
+           |> Map.update!(:created, &(&1 + 1))
+           |> put_in([:effects, idempotency_key], effect)}
+      end
+    end)
+  end
+
+  defp external_effect_stats(provider), do: Agent.get(provider, &Map.take(&1, [:calls, :created]))
 
   defp hgetall_field(%{} = fields, field), do: Map.get(fields, field)
 

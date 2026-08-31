@@ -92,6 +92,34 @@ defmodule FerricStore.Workflow do
     )
   end
 
+  @doc "See `FerricStore.Flow.advance/3`; the workflow lease is applied automatically."
+  @spec advance(t(), map(), keyword()) ::
+          map()
+          | {:error,
+             FerricStore.Error.t() | FerricStore.Flow.DurableMutationOutcomeUnknownError.t()}
+  def advance(%__MODULE__{} = workflow, job, opts) do
+    with_flow_options(
+      :advance,
+      [lease_ms: workflow.lease_ms],
+      opts,
+      &Flow.advance(workflow.client, job, &1)
+    )
+  end
+
+  @doc "See `FerricStore.Flow.step/3`; the workflow codec and lease are applied automatically."
+  @spec step(t(), map(), keyword()) ::
+          {map(), term()}
+          | {:error,
+             FerricStore.Error.t() | FerricStore.Flow.DurableMutationOutcomeUnknownError.t()}
+  def step(%__MODULE__{} = workflow, job, opts) do
+    with_flow_options(
+      :step,
+      [codec: workflow.codec, lease_ms: workflow.lease_ms],
+      opts,
+      &Flow.step(workflow.client, job, &1)
+    )
+  end
+
   def complete(%__MODULE__{} = workflow, id, opts) do
     with_flow_options(
       :complete,

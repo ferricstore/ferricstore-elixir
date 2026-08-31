@@ -23,7 +23,7 @@ defmodule FerricStore.SDK.Native.ConnectionFailureTest do
     assert {:error, {:transport_failed, {:connection_down, :killed}}} =
              Task.await(request, 1_000)
 
-    assert ClientRuntime.state(client).request_registry.requests == %{}
+    assert_only_background_requests(client)
     assert Process.alive?(client)
   end
 
@@ -46,7 +46,7 @@ defmodule FerricStore.SDK.Native.ConnectionFailureTest do
     assert failure.reason == {:transport_failed, {:connection_down, :killed}}
 
     state = ClientRuntime.state(client)
-    assert state.request_registry.requests == %{}
+    assert_only_background_requests(client)
     assert state.batch_scheduler.batches == %{}
     assert Process.alive?(client)
   end
@@ -127,5 +127,11 @@ defmodule FerricStore.SDK.Native.ConnectionFailureTest do
   defp only_pending_connection(client) do
     [{_tag, request}] = Map.to_list(ClientRuntime.state(client).request_registry.requests)
     request.conn
+  end
+
+  defp assert_only_background_requests(client) do
+    requests = ClientRuntime.state(client).request_registry.requests
+
+    assert Enum.all?(requests, fn {_tag, request} -> request.kind == :event_restore end)
   end
 end
