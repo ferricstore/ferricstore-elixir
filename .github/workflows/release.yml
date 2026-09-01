@@ -3,10 +3,14 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "v*.*.*"
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -19,6 +23,7 @@ jobs:
         with:
           otp-version: "29"
           elixir-version: "1.20"
+      - run: scripts/verify-release-tag.sh
       - run: mix deps.get
       - run: mix hex.audit
       - run: mix format --check-formatted
@@ -81,6 +86,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29"
+          elixir-version: "1.20"
+      - run: mix deps.get
+      - name: Verify tag and immutable Hex version
+        id: release_guard
+        env:
+          CHECK_HEX: "true"
+        run: scripts/verify-release-tag.sh >> "$GITHUB_OUTPUT"
       - name: Check Hex credentials
         id: hex_creds
         env:
@@ -92,14 +107,7 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "HEX_API_KEY is not configured; skipping Hex publish."
           fi
-      - uses: erlef/setup-beam@v1
-        if: steps.hex_creds.outputs.available == 'true'
-        with:
-          otp-version: "29"
-          elixir-version: "1.20"
-      - run: mix deps.get
-        if: steps.hex_creds.outputs.available == 'true'
       - run: mix hex.publish --yes
-        if: steps.hex_creds.outputs.available == 'true'
+        if: steps.hex_creds.outputs.available == 'true' && steps.release_guard.outputs.already_published != 'true'
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}

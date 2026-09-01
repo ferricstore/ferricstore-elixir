@@ -35,6 +35,14 @@ defmodule FerricStore.Architecture.DocumentationContractTest do
     refute contents =~ "test/ferric_store/architecture_test.exs"
   end
 
+  test "workflow timing documentation separates server and client clocks" do
+    contents = File.read!(Path.join(@root, "docs/workflow.md"))
+
+    assert contents =~ "server time"
+    assert contents =~ "client wall clock"
+    assert contents =~ "Omit `now_ms` in production"
+  end
+
   test "the Hex package carries the complete declared Apache license" do
     contents = File.read!(Path.join(@root, "LICENSE"))
 

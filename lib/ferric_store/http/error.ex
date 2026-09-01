@@ -14,7 +14,8 @@ defmodule FerricStore.HTTP.Error do
     :details,
     :reason,
     retryable: false,
-    safe_to_retry: false
+    safe_to_retry: false,
+    delivery: :unknown
   ]
 
   @type t :: %__MODULE__{
@@ -25,13 +26,20 @@ defmodule FerricStore.HTTP.Error do
           details: map() | nil,
           reason: term(),
           retryable: boolean(),
-          safe_to_retry: boolean()
+          safe_to_retry: boolean(),
+          delivery: :not_sent | :rejected | :unknown
         }
 
-  @spec timeout() :: {:error, t()}
-  def timeout do
+  @spec timeout(:not_sent | :unknown) :: {:error, t()}
+  def timeout(delivery \\ :unknown) when delivery in [:not_sent, :unknown] do
     {:error,
-     %__MODULE__{message: "HTTP command request timed out", reason: :timeout, retryable: true}}
+     %__MODULE__{
+       message: "HTTP command request timed out",
+       reason: :timeout,
+       retryable: true,
+       safe_to_retry: delivery == :not_sent,
+       delivery: delivery
+     }}
   end
 
   @spec network(term()) :: {:error, t()}
@@ -41,11 +49,19 @@ defmodule FerricStore.HTTP.Error do
        message: "HTTP command request failed",
        reason: reason,
        retryable: true,
-       safe_to_retry: false
+       safe_to_retry: false,
+       delivery: :unknown
      }}
   end
 
-  @spec invalid(term()) :: {:error, t()}
-  def invalid(reason),
-    do: {:error, %__MODULE__{message: "invalid HTTP command request", reason: reason}}
+  @spec invalid(term(), :not_sent | :unknown) :: {:error, t()}
+  def invalid(reason, delivery \\ :not_sent) when delivery in [:not_sent, :unknown] do
+    {:error,
+     %__MODULE__{
+       message: "invalid HTTP command request",
+       reason: reason,
+       safe_to_retry: delivery == :not_sent,
+       delivery: delivery
+     }}
+  end
 end

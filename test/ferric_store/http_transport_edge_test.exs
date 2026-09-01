@@ -166,7 +166,7 @@ defmodule FerricStore.HTTPTransportEdgeTest do
   use ExUnit.Case, async: false
 
   alias FerricStore.ClientIdentity
-  alias FerricStore.HTTP.{Error, RequestLimit}
+  alias FerricStore.HTTP.{Error, RequestLimit, Response}
   alias FerricStore.SDK
   alias FerricStore.SDK.Native.AdmissionGate
   alias FerricStore.SDK.Native.Client, as: NativeClient
@@ -236,7 +236,13 @@ defmodule FerricStore.HTTPTransportEdgeTest do
     assert :ok = SDK.close(warm_client)
     assert {:ok, client} = SDK.from_url(url, timeout: 50)
 
-    assert {:error, %Error{reason: :timeout, retryable: true, safe_to_retry: false}} =
+    assert {:error,
+            %Error{
+              reason: :timeout,
+              retryable: true,
+              safe_to_retry: false,
+              delivery: :unknown
+            }} =
              SDK.ping(client)
 
     assert :ok = SDK.close(client)
@@ -308,8 +314,18 @@ defmodule FerricStore.HTTPTransportEdgeTest do
     assert {:ok, request_limited} =
              SDK.from_url("http://127.0.0.1:1", max_request_bytes: 1)
 
-    assert {:error, %Error{reason: :request_too_large}} = SDK.ping(request_limited)
+    assert {:error, %Error{reason: :request_too_large, delivery: :not_sent}} =
+             SDK.ping(request_limited)
+
+    assert FerricStore.ClientIdentity.type(request_limited) == :http
     assert :ok = SDK.close(request_limited)
+  end
+
+  test "closed HTTP clients fail before command submission" do
+    assert {:ok, client} = SDK.from_url("http://127.0.0.1:1")
+    assert :ok = SDK.close(client)
+
+    assert {:error, :client_closed} = SDK.ping(client)
   end
 
   test "oversized binary payloads are rejected by the allocation-safe preflight" do
@@ -341,6 +357,43 @@ defmodule FerricStore.HTTPTransportEdgeTest do
             }} = SDK.ping(client)
 
     assert :ok = SDK.close(client)
+  end
+
+  test "HTTP durable delivery classification overrides unsafe timeout metadata" do
+    assert {:error, %Error{delivery: :rejected, safe_to_retry: false}} =
+             Response.values(401, %{"error" => %{"message" => "unauthenticated"}}, 1, [])
+
+    assert {:error, %Error{delivery: :rejected, safe_to_retry: true}} =
+             Response.values(
+               503,
+               %{"error" => %{"message" => "admission rejected", "safe_to_retry" => true}},
+               1,
+               []
+             )
+
+    for {status, code} <- [{408, "overloaded"}, {504, "request_timeout"}] do
+      assert {:error, %Error{delivery: :unknown, safe_to_retry: false}} =
+               Response.values(
+                 status,
+                 %{
+                   "error" => %{
+                     "code" => code,
+                     "message" => "deadline after dispatch",
+                     "safe_to_retry" => true
+                   }
+                 },
+                 1,
+                 []
+               )
+    end
+  end
+
+  test "local HTTP failures are explicitly safe but not automatically retryable" do
+    assert {:error, %Error{delivery: :not_sent, retryable: false, safe_to_retry: true}} =
+             Error.invalid(:request_too_large, :not_sent)
+
+    assert {:error, %Error{delivery: :not_sent, retryable: true, safe_to_retry: true}} =
+             Error.timeout(:not_sent)
   end
 
   test "malformed server error metadata cannot create an invalid exception" do
