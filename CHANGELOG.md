@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.12.1 - 2026-09-01
+
 - Distinguish locally unsent, definitely rejected, and uncertain durable
   mutations across native TCP and HTTP; keep HTTP 408, response loss, and
   future native statuses outcome-unknown without replaying the write.
