@@ -10,6 +10,8 @@
   caller-owned closure execution and server-time lease semantics.
 - Verify release tag/version identity and compare an existing Hex package's
   immutable checksum before treating a publish retry as complete.
+- Reject whitespace-only and invalid-UTF-8 durable step names before lease
+  validation, closure execution, or network I/O.
 
 ## 0.12.0 - 2026-08-31
 

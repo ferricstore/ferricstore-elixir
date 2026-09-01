@@ -76,7 +76,11 @@ defmodule FerricStore.Flow.DurableStepOptions do
   end
 
   defp validate_name(name) when is_binary(name) and name != "" do
-    if String.valid?(name), do: :ok, else: invalid(:step, :name, :expected_utf8_binary)
+    cond do
+      not String.valid?(name) -> invalid(:step, :name, :expected_utf8_binary)
+      String.trim(name) == "" -> invalid(:step, :name, :expected_nonblank_binary)
+      true -> :ok
+    end
   end
 
   defp validate_name(_name), do: invalid(:step, :name, :expected_nonempty_binary)
