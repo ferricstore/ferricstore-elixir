@@ -5,7 +5,7 @@
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.12.1"}
+    {:ferricstore_sdk, "~> 0.12.2"}
   ]
 end
 ```
@@ -78,16 +78,30 @@ FerricStore.Workflow.start(workflow, "order-1",
 
 [job | _] = FerricStore.Workflow.claim(workflow, "created", limit: 1)
 
-FerricStore.Workflow.transition(workflow, job["id"], "running", "charged",
-  partition_key: job["partition_key"],
-  lease_token: job["lease_token"],
-  fencing_token: job["fencing_token"],
-  payload: "charged"
-)
+{job, charge} =
+  FerricStore.Workflow.step(workflow, job,
+    name: "charge-customer:v1",
+    run: fn ->
+      Stripe.charge(
+        amount: 150,
+        idempotency_key: "#{job["id"]}:charge-customer:v1"
+      )
+    end,
+    to_state: "charged"
+  )
+
+job = FerricStore.Workflow.advance(workflow, job, to_state: "receipt")
 ```
 
-Claiming moves the durable state to `running`. Use `"running"` as the
-`from_state` for a claimed job transition.
+`step/3` journals the closure result with a stable name and returns the refreshed
+claim plus the stored result. A replay returns that result without rerunning the
+closure. The provider idempotency key is still required for the failure window
+between a successful external call and FerricStore committing the result.
+
+Both `step/3` and `advance/3` keep the workflow claimed and update its logical
+`run_state`. To wait for a timer, signal, or approval without occupying a worker,
+persist the waiting business state with `transition/5` and the refreshed claim's
+lease and fencing tokens. See the workflow guide for the complete handoff.
 
 ## Fetch state and history
 

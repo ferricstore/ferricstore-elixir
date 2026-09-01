@@ -21,10 +21,12 @@ defmodule FerricStore.Flow do
   def cancel(client, id, opts), do: LifecycleCommands.cancel(client, id, opts)
   def signal(client, id, opts), do: LifecycleCommands.signal(client, id, opts)
 
-  @doc "Atomically advances a claim; uncertain commits return `FerricStore.Flow.DurableMutationOutcomeUnknownError`."
+  @doc "Atomically advances a claim and returns its refreshed lease. Reads identity, run state, and fencing from `job`; pass `:to_state`. " <>
+         "Uncertain commits return `FerricStore.Flow.DurableMutationOutcomeUnknownError`."
   def advance(client, job, opts), do: DurableStep.advance(client, job, opts)
 
-  @doc "Runs and journals a named closure; see `FerricStore.Flow.DurableMutationOutcomeUnknownError` for recovery."
+  @doc "Runs and journals a stable named closure, advances the logical state, and returns `{refreshed_job, stored_result}`. Replays return the stored value. " <>
+         "External effects still need provider idempotency; see `FerricStore.Flow.DurableMutationOutcomeUnknownError` for uncertain responses."
   def step(client, job, opts), do: DurableStep.step(client, job, opts)
   def create_many(client, items, opts), do: BatchCommands.create_many(client, items, opts)
   def complete_many(client, jobs, opts \\ []), do: BatchCommands.complete_many(client, jobs, opts)

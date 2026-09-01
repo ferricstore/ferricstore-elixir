@@ -92,7 +92,11 @@ defmodule FerricStore.Workflow do
     )
   end
 
-  @doc "See `FerricStore.Flow.advance/3`; the workflow lease is applied automatically."
+  @doc """
+  Atomically advances `job` and returns the refreshed claim.
+
+  See `FerricStore.Flow.advance/3`; the workflow lease is applied automatically.
+  """
   @spec advance(t(), map(), keyword()) ::
           map()
           | {:error,
@@ -106,7 +110,12 @@ defmodule FerricStore.Workflow do
     )
   end
 
-  @doc "See `FerricStore.Flow.step/3`; the workflow codec and lease are applied automatically."
+  @doc """
+  Runs a named durable closure and returns `{refreshed_job, stored_result}`.
+
+  See `FerricStore.Flow.step/3`; the workflow codec and lease are applied
+  automatically.
+  """
   @spec step(t(), map(), keyword()) ::
           {map(), term()}
           | {:error,
