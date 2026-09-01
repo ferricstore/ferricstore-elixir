@@ -723,6 +723,20 @@ defmodule FerricStore.Flow.DurableStepTest do
 
     assert {:error, %FerricStore.Error{}} =
              Flow.step(client, claimed_job(),
+               name: "   ",
+               run: fn -> flunk("invalid closure executed") end,
+               to_state: "schedule_warning"
+             )
+
+    assert {:error, %FerricStore.Error{}} =
+             Flow.step(client, claimed_job(),
+               name: <<"charge:", 0xFF>>,
+               run: fn -> flunk("invalid closure executed") end,
+               to_state: "schedule_warning"
+             )
+
+    assert {:error, %FerricStore.Error{}} =
+             Flow.step(client, claimed_job(),
                name: @step_name,
                run: :not_a_function,
                to_state: "schedule_warning"
