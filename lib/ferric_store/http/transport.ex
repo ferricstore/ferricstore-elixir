@@ -16,9 +16,9 @@ defmodule FerricStore.HTTP.Transport do
          :ok <- DeadlineBudget.ensure_active(budget) do
       run_request(config, body, budget)
     else
-      {:error, :timeout} -> Error.timeout()
+      {:error, :timeout} -> Error.timeout(:not_sent)
       {:error, %Error{} = error} -> {:error, error}
-      {:error, reason} -> Error.invalid(reason)
+      {:error, reason} -> Error.invalid(reason, :not_sent)
     end
   end
 
@@ -29,7 +29,7 @@ defmodule FerricStore.HTTP.Transport do
 
     case DeadlineTask.run(budget, task) do
       {:ok, result} -> result
-      {:error, :timeout} -> Error.timeout()
+      {:error, :timeout} -> Error.timeout(:unknown)
       {:error, reason} -> Error.network(reason)
     end
   end
@@ -44,7 +44,7 @@ defmodule FerricStore.HTTP.Transport do
         decode_response(status, response_headers, response_body)
       end
     else
-      {:error, :timeout} -> Error.timeout()
+      {:error, :timeout} -> Error.timeout(:unknown)
       {:error, %Error{} = error} -> {:error, error}
       {:error, reason} -> Error.network(reason)
     end
@@ -110,7 +110,7 @@ defmodule FerricStore.HTTP.Transport do
 
   defp redirect(_config, _budget, _status, _url, _headers, _body, _response, redirects)
        when redirects >= @max_redirects,
-       do: Error.invalid(:too_many_redirects)
+       do: Error.invalid(:too_many_redirects, :unknown)
 
   defp redirect(config, budget, status, url, headers, body, response_headers, redirects) do
     with {:ok, location} <- location(response_headers),
@@ -118,7 +118,7 @@ defmodule FerricStore.HTTP.Transport do
       {method, headers, body} = redirect_request(status, headers, body)
       request(config, budget, method, target, headers, body, redirects + 1)
     else
-      {:error, reason} -> Error.invalid(reason)
+      {:error, reason} -> Error.invalid(reason, :unknown)
     end
   end
 
@@ -135,7 +135,7 @@ defmodule FerricStore.HTTP.Transport do
     case Envelope.decode(body) do
       {:ok, envelope} -> {:ok, status, headers, envelope}
       {:error, _reason} when status < 200 or status >= 300 -> {:ok, status, headers, %{}}
-      {:error, reason} -> Error.invalid(reason)
+      {:error, reason} -> Error.invalid(reason, :unknown)
     end
   end
 

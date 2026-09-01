@@ -135,7 +135,7 @@ defmodule FerricStore.HTTP.Command do
     with :ok <- CommandDeadline.ensure_active(budget),
          {:ok, status, headers, envelope} <- Transport.post(config, [command], budget),
          {:ok, [result]} <- Response.values(status, envelope, 1, headers),
-         :ok <- CommandDeadline.ensure_active(budget) do
+         :ok <- CommandDeadline.ensure_active(budget, :unknown) do
       result
     end
   end
@@ -144,7 +144,7 @@ defmodule FerricStore.HTTP.Command do
     with :ok <- CommandDeadline.ensure_active(budget),
          {:ok, status, headers, envelope} <- Transport.post(config, commands, budget),
          {:ok, values} <- Response.values(status, envelope, length(commands), headers),
-         :ok <- CommandDeadline.ensure_active(budget) do
+         :ok <- CommandDeadline.ensure_active(budget, :unknown) do
       values
       |> Enum.map(&pipeline_pair/1)
       |> pipeline_result(budget)
@@ -162,7 +162,7 @@ defmodule FerricStore.HTTP.Command do
   defp pipeline_pair({:error, error}), do: ["error", error]
 
   defp pipeline_result(values, budget) do
-    with :ok <- CommandDeadline.ensure_active(budget), do: {:ok, values}
+    with :ok <- CommandDeadline.ensure_active(budget, :unknown), do: {:ok, values}
   end
 
   defp indexes(0), do: []
@@ -185,7 +185,9 @@ defmodule FerricStore.HTTP.Command do
      %Error{
        message: "command requires a persistent native TCP session",
        error_code: "native_only",
-       reason: {:http_native_only, reason}
+       reason: {:http_native_only, reason},
+       safe_to_retry: true,
+       delivery: :not_sent
      }}
   end
 end

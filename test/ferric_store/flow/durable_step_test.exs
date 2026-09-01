@@ -484,6 +484,19 @@ defmodule FerricStore.Flow.DurableStepTest do
     assert {:error, %FerricStore.Error{raw: %{"code" => "stale_lease"}}} =
              Flow.advance(command_error_client, claimed_job(), to_state: "schedule_warning")
 
+    {:ok, compatibility_error_client} =
+      ScriptedClient.start_link(self(), [
+        {:error,
+         %{
+           "code" => "error",
+           "message" => "ERR stale flow lease",
+           "safe_to_retry" => false
+         }}
+      ])
+
+    assert {:error, %FerricStore.Error{raw: %{"code" => "error"}}} =
+             Flow.advance(compatibility_error_client, claimed_job(), to_state: "schedule_warning")
+
     safe_reroute = %{"safe_to_retry" => true, "retryable" => true}
 
     {:ok, reroute_client} =
@@ -497,11 +510,93 @@ defmodule FerricStore.Flow.DurableStepTest do
     {:ok, unsafe_client} =
       ScriptedClient.start_link(self(), [{:error, {:reroute, unsafe_reroute}}])
 
-    assert {:error, unsafe_error} =
+    assert {:error, %FerricStore.Error{raw: {:reroute, ^unsafe_reroute}}} =
              Flow.advance(unsafe_client, claimed_job(), to_state: "schedule_warning")
+  end
 
-    assert unsafe_error.__struct__ ==
-             FerricStore.Flow.DurableMutationOutcomeUnknownError
+  test "ambiguous and future server failures remain outcome unknown without another write" do
+    ambiguous = [
+      {:error, {:error, %{"code" => "timeout", "message" => "Raft outcome unknown"}}},
+      {:error, {:unknown_status, 77, %{"safe_to_retry" => true}}},
+      {:error,
+       %FerricStore.HTTP.Error{
+         message: "request timed out after dispatch",
+         status_code: 408,
+         error_code: "request_timeout",
+         reason: {:http_status, 408},
+         retryable: true,
+         safe_to_retry: true
+       }}
+    ]
+
+    for reply <- ambiguous do
+      {:ok, client} = ScriptedClient.start_link(self(), [reply])
+
+      assert {:error, error} =
+               Flow.advance(client, claimed_job(), to_state: "schedule_warning")
+
+      assert error.__struct__ ==
+               FerricStore.Flow.DurableMutationOutcomeUnknownError
+
+      assert_receive {:request, opcode, _route, _payload, []}
+      assert opcode == Opcodes.flow_step_continue()
+      refute_receive {:request, ^opcode, _route, _payload, _opts}
+    end
+  end
+
+  test "a proven local HTTP rejection is returned directly without retrying the mutation" do
+    {:ok, client} =
+      ScriptedClient.start_link(self(), [
+        {:error,
+         %FerricStore.HTTP.Error{
+           message: "request exceeded the configured client limit",
+           reason: :request_too_large,
+           delivery: :not_sent
+         }}
+      ])
+
+    assert {:error,
+            %FerricStore.HTTP.Error{
+              reason: :request_too_large,
+              delivery: :not_sent
+            }} = Flow.advance(client, claimed_job(), to_state: "schedule_warning")
+
+    assert_receive {:request, opcode, _route, _payload, []}
+    assert opcode == Opcodes.flow_step_continue()
+    refute_receive {:request, ^opcode, _route, _payload, _opts}
+  end
+
+  test "a closed client is rejected before durable mutation submission" do
+    {:ok, client} = ScriptedClient.start_link(self(), [])
+    GenServer.stop(client)
+
+    assert {:error, %FerricStore.Error{raw: :client_closed}} =
+             Flow.advance(client, claimed_job(), to_state: "schedule_warning")
+
+    refute_receive {:request, _opcode, _route, _payload, _opts}
+  end
+
+  test "durable closures execute in the caller-owned process" do
+    caller = self()
+
+    {:ok, client} =
+      ScriptedClient.start_link(self(), [
+        {:ok, extended_job()},
+        {:ok, ["flow-1", "tenant-a", "lease-2", 8]}
+      ])
+
+    assert {_job, :charged} =
+             Flow.step(client, claimed_job(),
+               name: @step_name,
+               run: fn ->
+                 send(caller, {:closure_process, self()})
+                 :charged
+               end,
+               to_state: "schedule_warning",
+               codec: Term
+             )
+
+    assert_receive {:closure_process, ^caller}
   end
 
   test "a fresh target-state claim safely replays after an uncertain commit response" do

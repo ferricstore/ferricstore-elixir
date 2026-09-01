@@ -14,7 +14,7 @@ defmodule FerricStore.Flow.DurableStep do
     ResponseDecodeRuntime
   }
 
-  alias FerricStore.{RequestContext, Result, Types}
+  alias FerricStore.{ClientIdentity, RequestContext, Result, Types}
   alias FerricStore.SDK.Flow, as: NativeFlow
 
   @spec advance(pid(), map(), keyword()) ::
@@ -22,11 +22,13 @@ defmodule FerricStore.Flow.DurableStep do
   def advance(client, job, opts) do
     with {:ok, opts} <- DurableStepOptions.prepare(:advance, opts),
          {:ok, job} <- DurableStepClaim.validate(job, :advance),
+         :ok <- client_available(client),
          {:ok, claim} <- continue(client, job, opts, %{}) do
       claim
     else
       {:error, %FerricStore.Error{} = error} -> {:error, error}
       {:error, %DurableMutationOutcomeUnknownError{} = error} -> {:error, error}
+      {:error, %{__exception__: true} = error} -> {:error, error}
       {:error, reason} -> Result.error(reason)
     end
   end
@@ -37,11 +39,13 @@ defmodule FerricStore.Flow.DurableStep do
   def step(client, job, opts) do
     with {:ok, opts} <- DurableStepOptions.prepare(:step, opts),
          {:ok, job} <- DurableStepClaim.validate(job, :step),
+         :ok <- client_available(client),
          {:ok, record} <- extend_lease(client, job, opts) do
       run_or_replay(client, job, record, opts)
     else
       {:error, %FerricStore.Error{} = error} -> {:error, error}
       {:error, %DurableMutationOutcomeUnknownError{} = error} -> {:error, error}
+      {:error, %{__exception__: true} = error} -> {:error, error}
       {:error, reason} -> Result.error(reason)
     end
   end
@@ -77,10 +81,12 @@ defmodule FerricStore.Flow.DurableStep do
         {:ok, refreshed} -> {refreshed, stored_result}
         {:error, %FerricStore.Error{} = error} -> {:error, error}
         {:error, %DurableMutationOutcomeUnknownError{} = error} -> {:error, error}
+        {:error, %{__exception__: true} = error} -> {:error, error}
         {:error, reason} -> Result.error(reason)
       end
     else
       {:error, %FerricStore.Error{} = error} -> {:error, error}
+      {:error, %{__exception__: true} = error} -> {:error, error}
       {:error, reason} -> Result.error(reason)
     end
   end
@@ -166,6 +172,16 @@ defmodule FerricStore.Flow.DurableStep do
 
   defp invalid_response(reason),
     do: Result.error({:invalid_flow_response, %{operation: :step, reason: reason}})
+
+  defp client_available(client) when is_pid(client) do
+    case ClientIdentity.type(client) do
+      :dead -> {:error, :client_closed}
+      :unknown -> {:error, {:client_unavailable, :unknown}}
+      _available -> :ok
+    end
+  end
+
+  defp client_available(_client), do: {:error, {:client_unavailable, :invalid_client}}
 
   defp put_option(payload, opts, key, option) do
     case Keyword.fetch(opts, option) do

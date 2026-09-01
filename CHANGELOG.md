@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Distinguish locally unsent, definitely rejected, and uncertain durable
+  mutations across native TCP and HTTP; keep HTTP 408, response loss, and
+  future native statuses outcome-unknown without replaying the write.
+- Make closed-client and request-preparation failures explicitly safe before
+  submission, preserve server-compatible stale-lease rejections, and document
+  caller-owned closure execution and server-time lease semantics.
+- Verify release tag/version identity and compare an existing Hex package's
+  immutable checksum before treating a publish retry as complete.
+
 ## 0.12.0 - 2026-08-31
 
 - Add chainable `FerricStore.Flow.advance/3` and durable

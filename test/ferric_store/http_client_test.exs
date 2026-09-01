@@ -246,6 +246,67 @@ defmodule FerricStore.HTTPClientTest do
     assert :ok = SDK.close(client)
   end
 
+  test "a truncated transport response after STEP_CONTINUE is outcome unknown", context do
+    owner = self()
+    counter = :atomics.new(1, signed: false)
+
+    Bypass.expect(context.bypass, "POST", "/v1/commands", fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      [command] = Jason.decode!(body)["commands"]
+
+      case :atomics.add_get(counter, 1, 1) do
+        1 ->
+          assert command["command"] == "FLOW.EXTEND_LEASE"
+
+          record = %{
+            "id" => "flow-1",
+            "partition_key" => "tenant-a",
+            "lease_token" => "lease-1",
+            "fencing_token" => 7,
+            "state" => "running",
+            "run_state" => "charge",
+            "value_refs" => %{}
+          }
+
+          Plug.Conn.send_resp(conn, 200, Jason.encode!(success_envelope(record)))
+
+        2 ->
+          assert command["command"] == "FLOW.STEP_CONTINUE"
+          send(owner, :commit_request_received)
+
+          Plug.Conn.send_resp(
+            conn,
+            200,
+            ~s({"encoding":"ferricstore-json-v1","results":[)
+          )
+      end
+    end)
+
+    assert {:ok, client} = SDK.from_url(context.url)
+
+    job = %{
+      "id" => "flow-1",
+      "partition_key" => "tenant-a",
+      "lease_token" => "lease-1",
+      "fencing_token" => 7,
+      "run_state" => "charge"
+    }
+
+    assert {:error,
+            %FerricStore.Flow.DurableMutationOutcomeUnknownError{
+              cause: %Error{delivery: :unknown}
+            }} =
+             FerricStore.Flow.step(client, job,
+               name: "charge-customer:v1",
+               run: fn -> "charged" end,
+               to_state: "schedule_warning"
+             )
+
+    assert_receive :commit_request_received
+    assert :atomics.get(counter, 1) == 2
+    assert :ok = SDK.close(client)
+  end
+
   test "invalid UTF-8 command names fail locally without crashing", context do
     invalid = <<0xFF, 0xFE>>
     assert {:ok, client} = SDK.from_url(context.url)

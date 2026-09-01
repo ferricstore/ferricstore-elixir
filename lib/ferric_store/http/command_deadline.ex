@@ -26,11 +26,11 @@ defmodule FerricStore.HTTP.CommandDeadline do
     end
   end
 
-  @spec ensure_active(DeadlineBudget.t()) :: :ok | {:error, Error.t()}
-  def ensure_active(%DeadlineBudget{} = budget) do
+  @spec ensure_active(DeadlineBudget.t(), :not_sent | :unknown) :: :ok | {:error, Error.t()}
+  def ensure_active(%DeadlineBudget{} = budget, delivery \\ :not_sent) do
     case DeadlineBudget.ensure_active(budget) do
       :ok -> :ok
-      {:error, :timeout} -> Error.timeout()
+      {:error, :timeout} -> Error.timeout(delivery)
     end
   end
 

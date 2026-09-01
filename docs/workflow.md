@@ -107,6 +107,26 @@ When `claim_due` succeeds, FerricStore leases the flow and moves current state t
 - Transition claimed work from `"running"` to next business state.
 - Always pass `partition_key`, `lease_token`, and `fencing_token` from the job.
 
+## Durable steps and time
+
+`FerricStore.Workflow.advance/3` and `FerricStore.Flow.advance/3` derive the
+workflow identity, current run state, lease token, and fencing token from the
+claimed job. `step/3` runs its zero-arity closure in the calling process,
+commits the named result with the transition, and replays a previously committed
+result without running the closure again. Production workers should therefore
+call these functions from their own supervised process.
+
+Lease validation, lease renewal, fencing, and transition ordering use
+authoritative server time. Omit `now_ms` in production so the server clock owns
+those decisions. `now_ms` is an explicit deterministic-test and administrative
+override; it is not a request to use the worker's client wall clock as the lease
+authority.
+
+Absolute scheduling fields such as `run_at_ms` and `start_at_ms` are timestamps
+chosen by the application. When deriving them from the client wall clock, keep
+hosts synchronized and allow for clock skew. Once submitted, whether work is
+due is still decided using server time.
+
 ## Retry, fail, cancel
 
 ```elixir

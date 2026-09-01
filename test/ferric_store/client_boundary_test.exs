@@ -687,7 +687,11 @@ defmodule FerricStore.ClientBoundaryTest do
     {:ok, unrelated} = Agent.start_link(fn -> :important_state end)
 
     on_exit(fn ->
-      if Process.alive?(unrelated), do: Agent.stop(unrelated)
+      try do
+        Agent.stop(unrelated)
+      catch
+        :exit, _already_stopped -> :ok
+      end
     end)
 
     assert Client.close(unrelated) == {:error, {:invalid_client, :unknown}}
