@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.12.2 - 2026-09-01
+
+- Document chainable state advancement, durable closure replay, provider
+  idempotency, and waiting-workflow claim release in the README, quickstart,
+  workflow guide, and generated HexDocs.
+- Align package metadata and public compatibility guidance with the patch
+  release.
+
 ## 0.12.1 - 2026-09-01
 
 - Distinguish locally unsent, definitely rejected, and uncertain durable

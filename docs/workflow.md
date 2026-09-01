@@ -111,10 +111,72 @@ When `claim_due` succeeds, FerricStore leases the flow and moves current state t
 
 `FerricStore.Workflow.advance/3` and `FerricStore.Flow.advance/3` derive the
 workflow identity, current run state, lease token, and fencing token from the
-claimed job. `step/3` runs its zero-arity closure in the calling process,
-commits the named result with the transition, and replays a previously committed
-result without running the closure again. Production workers should therefore
-call these functions from their own supervised process.
+claimed job and return a refreshed claim:
+
+```elixir
+job = FerricStore.Workflow.advance(workflow, job, to_state: "validated")
+```
+
+Use `step/3` when the operation result must be journaled with the logical state
+change:
+
+```elixir
+{job, charge} =
+  FerricStore.Workflow.step(workflow, job,
+    name: "charge-customer:v1",
+    run: fn ->
+      Stripe.charge(
+        amount: 150,
+        idempotency_key: "#{job["id"]}:charge-customer:v1"
+      )
+    end,
+    to_state: "schedule_warning"
+  )
+```
+
+The step name is a stable replay identity and must remain unchanged across
+retries. `step/3` runs its zero-arity closure in the calling process, commits
+the named result with the transition, and replays a previously committed result
+without running the closure again. An uncommitted closure may run again after
+lease takeover. External providers still need a stable idempotency key because
+a worker can stop after the external operation succeeds but before FerricStore
+commits the result. Production workers should call these functions from their
+own supervised process.
+
+`step_continue/3` remains available only as a deprecated low-level migration API.
+Use `advance/3` for state-only transitions and `step/3` for durable operations.
+
+### Waiting without occupying a worker
+
+A waiting workflow does not occupy a worker. `advance/3` and `step/3` renew the
+claim and change its logical `run_state`; they do not by themselves release the
+claim. Before a handler returns, persist the timer, signal, approval, or
+scheduled business state with `transition/5`, using the refreshed credentials:
+
+```elixir
+{job, :prepared} =
+  FerricStore.Workflow.step(workflow, job,
+    name: "prepare-approval:v1",
+    run: fn -> :prepared end,
+    to_state: "waiting_for_approval"
+  )
+
+FerricStore.Workflow.transition(
+  workflow,
+  job["id"],
+  "running",
+  "waiting_for_approval",
+  partition_key: job["partition_key"],
+  lease_token: job["lease_token"],
+  fencing_token: job["fencing_token"]
+)
+```
+
+The durable transition releases the active claim. When the wait condition moves
+the record to a runnable state, any available worker can acquire a fresh lease
+and continue from the stored state. If no worker is running, the workflow stays
+durable until one becomes available. Completed steps return their stored results
+and do not rerun; a stale worker's old lease and fencing token are rejected.
 
 Lease validation, lease renewal, fencing, and transition ordering use
 authoritative server time. Omit `now_ms` in production so the server clock owns

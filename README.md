@@ -2,7 +2,7 @@
 
 Elixir SDK for FerricStore and FerricFlow over native TCP and stateless HTTP.
 
-Status: public beta. SDK `0.12.1` requires FerricStore `~> 0.11.4`, negotiates
+Status: public beta. SDK `0.12.2` requires FerricStore `~> 0.11.4`, negotiates
 compact Stream mode 34 and compact Pub/Sub mode 35 with FerricStore 0.11.8 and
 later, and is validated against FerricStore 0.11.14. Native wire framing and the
 generic compatibility paths remain protocol v1. APIs may change before `1.0`, but the SDK is
@@ -31,7 +31,7 @@ path.
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.12.1"}
+    {:ferricstore_sdk, "~> 0.12.2"}
   ]
 end
 ```
@@ -261,6 +261,36 @@ FerricStore.Workflow.complete(workflow, job["id"],
 After `claim_due`, the current durable state is `running`; the original claimed
 state is tracked as run state. Pass `from_state: "running"` when transitioning a
 claimed job.
+
+For chainable state changes, pass the claim directly to `advance/3`. For a
+closure whose result must survive retry and recovery, use `step/3`:
+
+```elixir
+job = FerricStore.Workflow.advance(workflow, job, to_state: "validating")
+
+{job, charge} =
+  FerricStore.Workflow.step(workflow, job,
+    name: "charge-customer:v1",
+    run: fn ->
+      Stripe.charge(
+        amount: 150,
+        idempotency_key: "#{job["id"]}:charge-customer:v1"
+      )
+    end,
+    to_state: "schedule_warning"
+  )
+```
+
+The step name is a stable replay identity and must not change across retries.
+A committed result is returned without running the closure again. External
+providers still need a stable idempotency key because a worker can stop after
+the provider succeeds but before FerricStore commits the result.
+
+Waiting on a timer, signal, approval, or schedule must release the active claim;
+see the [workflow guide](docs/workflow.md#waiting-without-occupying-a-worker) for
+the complete handoff pattern. `step_continue/3` remains available only as a
+deprecated low-level migration API: use `advance/3` for state-only changes and
+`step/3` for durable closure results.
 
 ### 7. Store and fetch named values
 
