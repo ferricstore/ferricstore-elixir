@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.12.3 - 2026-09-19
+
+- Add native Flow worker-contract coverage for nested retry policies, complete
+  claim and reclaim records, selected values, and codec-encoded rewind reasons.
+
 ## 0.12.2 - 2026-09-01
 
 - Document chainable state advancement, durable closure replay, provider
