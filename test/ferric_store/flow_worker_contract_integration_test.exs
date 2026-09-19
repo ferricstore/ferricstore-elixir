@@ -109,7 +109,68 @@ defmodule FerricStore.FlowWorkerContractIntegrationTest do
     assert reclaimed["state_meta"] == record["state_meta"]
   end
 
-  test "native rewind persists binary reason and leaves a claimable successor", context do
+  test "native rewind leaves a claimable successor", context do
+    %{client: client, scope: scope, now: now} = context
+
+    assert {:ok, "OK"} =
+             NativeFlow.create(client, %{
+               id: scope,
+               type: scope,
+               state: "queued",
+               partition_key: scope,
+               now_ms: now,
+               run_at_ms: now
+             })
+
+    assert {:ok, [[event_id, _fields]]} =
+             NativeFlow.history(client, %{id: scope, partition_key: scope})
+
+    assert [job] =
+             Flow.claim_due(client, scope,
+               worker: "elixir-rewind",
+               partition_key: scope,
+               now_ms: now + 1
+             )
+
+    assert "OK" =
+             Flow.transition(client, scope,
+               from_state: "running",
+               to_state: "ready",
+               partition_key: scope,
+               now_ms: now + 2,
+               lease_token: job["lease_token"],
+               fencing_token: job["fencing_token"]
+             )
+
+    assert {:ok, "OK"} =
+             NativeFlow.rewind(client, %{
+               id: scope,
+               partition_key: scope,
+               to_event: event_id,
+               expect_state: "ready",
+               now_ms: now + 3
+             })
+
+    assert {:ok, record} = NativeFlow.get(client, %{id: scope, partition_key: scope})
+    assert record["state"] == "queued"
+
+    assert [next_job] =
+             Flow.claim_due(client, scope,
+               worker: "elixir-after-rewind",
+               partition_key: scope,
+               now_ms: now + 4
+             )
+
+    assert next_job["id"] == scope
+    assert next_job["fencing_token"] > job["fencing_token"]
+  end
+
+  @tag :requires_ferricstore_0_11_19
+  @tag skip:
+         FerricStore.Test.IntegrationGate.rewind_reason_skip(
+           System.get_env("FERRICSTORE_TEST_SERVER_VERSION")
+         )
+  test "native rewind persists binary reason", context do
     %{client: client, scope: scope, now: now} = context
 
     assert {:ok, "OK"} =
@@ -158,15 +219,5 @@ defmodule FerricStore.FlowWorkerContractIntegrationTest do
     assert record["state"] == "queued"
     assert is_binary(record["error_ref"])
     assert {:ok, [^reason]} = NativeFlow.value_mget(client, %{refs: [record["error_ref"]]})
-
-    assert [next_job] =
-             Flow.claim_due(client, scope,
-               worker: "elixir-after-rewind",
-               partition_key: scope,
-               now_ms: now + 4
-             )
-
-    assert next_job["id"] == scope
-    assert next_job["fencing_token"] > job["fencing_token"]
   end
 end

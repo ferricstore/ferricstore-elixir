@@ -9,6 +9,9 @@ generic compatibility paths remain protocol v1. APIs may change before `1.0`, bu
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
 
+Binary rewind-reason persistence requires FerricStore `>= 0.11.19`; older compatible
+servers retain the rewind state transition and claim behavior without that persisted reason.
+
 FerricFlow keeps each workflow or job's state and history in one durable place.
 It is an explicit durable state pipeline, not a hidden deterministic replay
 engine:

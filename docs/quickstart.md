@@ -18,6 +18,8 @@ mix deps.get
 
 This SDK requires FerricStore `~> 0.11.4`. The beta API contract changed at 0.11,
 while native framing remains protocol v1.
+Binary rewind-reason persistence requires FerricStore `>= 0.11.19`; older compatible
+servers still support the rewind transition and successor claim.
 
 From an SDK checkout, run the immutable server image validated by this release:
 
