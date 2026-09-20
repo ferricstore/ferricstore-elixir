@@ -53,8 +53,126 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntimeTest do
              )
 
     assert_receive {:ferricstore_connection_response, _connection, ^tag, {:error, :timeout}}
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, _result}
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, _result, _delivery_token}
     assert next_state.pending == %{}
     assert next_state.data_in_flight == 0
+  end
+
+  test "an expired acknowledged response returns a controlled timeout" do
+    tag = make_ref()
+    target = {:acknowledged_message, self(), tag}
+    request_id = 42
+
+    expired =
+      pending(target,
+        phase: :sent,
+        deadline: System.monotonic_time(:millisecond) - 1
+      )
+
+    state = response_state(%{request_id => expired})
+    body = <<0::unsigned-16, Codec.encode_value("late")::binary>>
+
+    assert {:ok, next_state} =
+             ConnectionResponseRuntime.finish(
+               state,
+               request_id,
+               expired,
+               0,
+               body,
+               byte_size(body)
+             )
+
+    assert_receive {:ferricstore_connection_response, _connection, ^tag, {:error, :timeout}}
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, _result}
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, _result, _delivery_token}
+    assert next_state.pending == %{}
+    assert next_state.pending_targets == %{}
+    assert next_state.pending_lanes == %{}
+    assert next_state.data_in_flight == 0
+  end
+
+  test "an acknowledged decode completed after its deadline returns a controlled timeout" do
+    tag = make_ref()
+    target = {:acknowledged_message, self(), tag}
+    request_id = 43
+    decode_token = make_ref()
+    decode_worker = spawn(fn -> Process.sleep(:infinity) end)
+    decode_monitor = Process.monitor(decode_worker)
+    on_exit(fn -> Process.exit(decode_worker, :kill) end)
+
+    expired =
+      pending(target,
+        phase: :decoding,
+        deadline: System.monotonic_time(:millisecond) - 1,
+        decode_token: decode_token,
+        decode_worker: decode_worker
+      )
+
+    state = response_state(%{request_id => expired}) |> Map.put(:decode, {:response, request_id})
+
+    assert {:ok, next_state} =
+             ConnectionResponseRuntime.complete_decode(
+               state,
+               decode_worker,
+               request_id,
+               decode_token,
+               {:response, %{}}
+             )
+
+    assert_receive {:ferricstore_connection_response, _connection, ^tag, {:error, :timeout}}
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, _result}
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, _result, ^decode_token}
+    assert_receive {:DOWN, ^decode_monitor, :process, ^decode_worker, :killed}
+    assert next_state.pending == %{}
+    assert next_state.pending_targets == %{}
+    assert next_state.pending_lanes == %{}
+    assert next_state.data_in_flight == 0
+    assert next_state.decode == nil
+  end
+
+  test "a timeout before an acknowledged decode completes delivers only one response" do
+    tag = make_ref()
+    target = {:acknowledged_message, self(), tag}
+    request_id = 44
+    timeout_token = make_ref()
+    decode_token = make_ref()
+    decode_worker = spawn(fn -> Process.sleep(:infinity) end)
+    decode_monitor = Process.monitor(decode_worker)
+    on_exit(fn -> Process.exit(decode_worker, :kill) end)
+
+    decoding =
+      pending(target,
+        phase: :decoding,
+        timeout_token: timeout_token,
+        decode_token: decode_token,
+        decode_worker: decode_worker
+      )
+
+    state = response_state(%{request_id => decoding})
+
+    assert {:noreply, timed_out_state} =
+             ConnectionInfoRuntime.handle(
+               {:request_timeout, request_id, timeout_token},
+               state
+             )
+
+    assert_receive {:ferricstore_connection_response, _connection, ^tag, {:error, :timeout}}
+
+    assert {:noreply, final_state} =
+             ConnectionInfoRuntime.handle(
+               {:ferricstore_response_decoded, decode_worker, request_id, decode_token,
+                {:response, %{}}},
+               timed_out_state
+             )
+
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, _result}
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, _result, ^decode_token}
+    assert_receive {:DOWN, ^decode_monitor, :process, ^decode_worker, :killed}
+    assert final_state.pending == %{}
+    assert final_state.pending_targets == %{}
+    assert final_state.pending_lanes == %{}
+    assert final_state.data_in_flight == 0
   end
 
   test "large response decoding does not run on the connection process" do
