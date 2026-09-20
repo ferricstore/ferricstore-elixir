@@ -5,7 +5,7 @@ defmodule FerricStore.IntegrationGateTest do
 
   test "skips only the rewind persistence regression for the known 0.11.4 floor" do
     assert is_binary(IntegrationGate.rewind_reason_skip("0.11.4"))
-    assert IntegrationGate.rewind_reason_skip("0.11.19") == false
+    assert IntegrationGate.rewind_reason_skip("0.11.20") == false
   end
 
   test "unknown or unset server versions fail closed by running every tagged test" do

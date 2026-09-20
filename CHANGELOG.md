@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.12.4 - 2026-09-20
+
+- Route acknowledged native responses that arrive after their deadline through
+  the pending-request delivery path so they return one controlled `:timeout`
+  result instead of being dispatched late or twice.
+- Validate the release against FerricStore OSS 0.11.20 using the immutable Quay
+  image `quay.io/ferricstore/ferricstore:0.11.20@sha256:aeec52c27c3afb6e462f659c16b75898d9e9fd6833c8830194f7252ef4916e4f`.
+
 ## 0.12.3 - 2026-09-19
 
 - Add native Flow worker-contract coverage for nested retry policies, complete

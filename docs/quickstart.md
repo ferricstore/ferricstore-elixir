@@ -5,7 +5,7 @@
 ```elixir
 def deps do
   [
-    {:ferricstore_sdk, "~> 0.12.3"}
+    {:ferricstore_sdk, "~> 0.12.4"}
   ]
 end
 ```
@@ -29,7 +29,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  quay.io/ferricstore/ferricstore:0.11.19@sha256:6275175c71a75f2d2a47c30c47a6561f994d8a5e31570fc8bd11a9f6ebcb6b31
+  quay.io/ferricstore/ferricstore:0.11.20@sha256:aeec52c27c3afb6e462f659c16b75898d9e9fd6833c8830194f7252ef4916e4f
 ```
 
 ## Connect
