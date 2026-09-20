@@ -146,7 +146,7 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
 
   defp complete_target(state, pending, result) do
     ConnectionTimers.cancel(pending.timer)
-    reply_target(pending.target, result)
+    ConnectionPending.reply(pending.target, result)
     {:ok, ConnectionDrain.maybe_stop(state)}
   end
 
@@ -172,9 +172,4 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
       max_in_flight_per_lane: state.max_in_flight_per_lane
     }
   end
-
-  defp reply_target({:call, from}, result), do: GenServer.reply(from, result)
-
-  defp reply_target({:message, reply_to, tag}, result),
-    do: send(reply_to, {:ferricstore_connection_response, self(), tag, result})
 end
