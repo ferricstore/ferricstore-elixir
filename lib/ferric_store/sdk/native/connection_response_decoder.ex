@@ -14,6 +14,15 @@ defmodule FerricStore.SDK.Native.ConnectionResponseDecoder do
     :erlang.spawn_opt(
       fn ->
         owner_monitor = Process.monitor(owner)
+
+        await_decode_gate(
+          Map.get(response, :decode_gate),
+          owner,
+          owner_monitor,
+          request_id,
+          decode_token
+        )
+
         result = decode(response)
         metadata = metadata(response.opcode, response.target, result)
         send(owner, {@message_tag, self(), request_id, decode_token, metadata})
@@ -31,13 +40,26 @@ defmodule FerricStore.SDK.Native.ConnectionResponseDecoder do
   end
 
   @spec stop(map()) :: :ok
-  def stop(%{phase: :decoding, decode_worker: worker}) when is_pid(worker) do
+  def stop(%{phase: phase, decode_worker: worker})
+      when phase in [:decoding, :discarding_decoding] and is_pid(worker) do
     Process.unlink(worker)
     Process.exit(worker, :kill)
     :ok
   end
 
   def stop(_pending), do: :ok
+
+  defp await_decode_gate(nil, _owner, _owner_monitor, _request_id, _decode_token), do: :ok
+
+  defp await_decode_gate(gate, owner, owner_monitor, request_id, decode_token)
+       when is_pid(gate) do
+    send(gate, {:ferricstore_response_decoder_ready, self(), request_id, decode_token})
+
+    receive do
+      {:ferricstore_response_decoder_continue, ^gate, ^request_id, ^decode_token} -> :ok
+      {:DOWN, ^owner_monitor, :process, ^owner, _reason} -> :ok
+    end
+  end
 
   @spec stop_pending(map()) :: :ok
   def stop_pending(pending) do

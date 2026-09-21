@@ -4,6 +4,7 @@ defmodule FerricStore.SDK.Native.ConnectionDiscardedResponse do
   alias FerricStore.SDK.Native.{
     Codec,
     ConnectionDrain,
+    ConnectionDiscardedControlResponse,
     ConnectionPendingLifecycle,
     ConnectionTimers
   }
@@ -40,6 +41,60 @@ defmodule FerricStore.SDK.Native.ConnectionDiscardedResponse do
   @spec consume(map(), non_neg_integer(), map(), non_neg_integer(), binary()) ::
           {:ok, map()} | {:stop, term(), map()}
   def consume(state, request_id, pending, flags, body) do
+    if ConnectionDiscardedControlResponse.authoritative?(pending) do
+      ConnectionDiscardedControlResponse.consume(state, request_id, pending, flags, body)
+    else
+      consume_discarded(state, request_id, pending, flags, body)
+    end
+  end
+
+  @spec expire(map(), non_neg_integer(), reference()) ::
+          {:noreply, map()} | {:stop, :late_response_timeout, map()}
+  def expire(state, request_id, token) do
+    case Map.fetch(state.pending, request_id) do
+      {:ok, %{phase: phase, late_response_token: ^token}}
+      when phase in [:discarding, :discarding_decoding] ->
+        failure = {:transport_failed, :late_response_timeout}
+        {:stop, :late_response_timeout, ConnectionPendingLifecycle.fail_all(state, failure)}
+
+      _missing_or_stale ->
+        {:noreply, state}
+    end
+  end
+
+  defp mark(state, request_id, pending) do
+    ConnectionTimers.cancel(pending.timer)
+    token = make_ref()
+    target = pending.target
+
+    {state, pending} = ConnectionDiscardedControlResponse.prepare_buffer(state, pending)
+
+    timer =
+      Process.send_after(
+        self(),
+        {:late_response_timeout, request_id, token},
+        grace_timeout(state, pending)
+      )
+
+    pending =
+      Map.merge(pending, %{
+        target: :discard,
+        phase: discard_phase(pending.phase),
+        timer: timer,
+        timeout_token: make_ref(),
+        late_response_token: token,
+        discarded_response_bytes: Map.get(pending, :discarded_response_bytes, 0),
+        discarded_response_frames: Map.get(pending, :discarded_response_frames, 0)
+      })
+
+    %{
+      state
+      | pending: Map.put(state.pending, request_id, pending),
+        pending_targets: delete_target(state.pending_targets, target, request_id)
+    }
+  end
+
+  defp consume_discarded(state, request_id, pending, flags, body) do
     bytes = Map.get(pending, :discarded_response_bytes, 0) + byte_size(body)
     frames = Map.get(pending, :discarded_response_frames, 0) + 1
 
@@ -65,59 +120,15 @@ defmodule FerricStore.SDK.Native.ConnectionDiscardedResponse do
     end
   end
 
-  @spec expire(map(), non_neg_integer(), reference()) ::
-          {:noreply, map()} | {:stop, :late_response_timeout, map()}
-  def expire(state, request_id, token) do
-    case Map.fetch(state.pending, request_id) do
-      {:ok, %{phase: :discarding, late_response_token: ^token}} ->
-        failure = {:transport_failed, :late_response_timeout}
-        {:stop, :late_response_timeout, ConnectionPendingLifecycle.fail_all(state, failure)}
-
-      _missing_or_stale ->
-        {:noreply, state}
-    end
-  end
-
-  defp mark(state, request_id, pending) do
-    ConnectionTimers.cancel(pending.timer)
-    token = make_ref()
-    target = pending.target
-    chunk_bytes = pending.chunk_bytes
-    chunk_frames = pending.chunk_frames
-
-    timer =
-      Process.send_after(
-        self(),
-        {:late_response_timeout, request_id, token},
-        grace_timeout(state, pending)
-      )
-
-    pending =
-      Map.merge(pending, %{
-        target: :discard,
-        phase: :discarding,
-        timer: timer,
-        timeout_token: make_ref(),
-        late_response_token: token,
-        discarded_response_bytes: chunk_bytes,
-        discarded_response_frames: chunk_frames,
-        chunks: [],
-        chunk_bytes: 0,
-        chunk_frames: 0
-      })
-
-    %{
-      state
-      | pending: Map.put(state.pending, request_id, pending),
-        pending_targets: delete_target(state.pending_targets, target, request_id),
-        response_chunk_bytes: max(state.response_chunk_bytes - chunk_bytes, 0),
-        response_chunk_frames: max(state.response_chunk_frames - chunk_frames, 0)
-    }
-  end
-
   defp retain_response?(%{phase: phase}) when phase in [:sending, :sent], do: true
 
+  defp retain_response?(%{phase: :decoding} = pending),
+    do: ConnectionDiscardedControlResponse.authoritative?(pending)
+
   defp retain_response?(_pending), do: false
+
+  defp discard_phase(:decoding), do: :discarding_decoding
+  defp discard_phase(_phase), do: :discarding
 
   defp grace_timeout(_state, %{timeout: timeout})
        when is_integer(timeout) and timeout > 0,

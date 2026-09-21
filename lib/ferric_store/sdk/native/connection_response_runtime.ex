@@ -3,22 +3,37 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
 
   alias FerricStore.SDK.Native.{
     ConnectionDrain,
-    ConnectionEventHandler,
+    ConnectionDiscardedControlResponse,
+    ConnectionDiscardedResponse,
     ConnectionPending,
     ConnectionRequest,
+    ConnectionResponseCapacity,
     ConnectionResponseDecoder,
     ConnectionResponseDelivery,
-    ConnectionTimers,
-    FlowControl
+    ConnectionTimers
   }
 
   @spec finish(map(), non_neg_integer(), map(), non_neg_integer(), iodata(), non_neg_integer()) ::
           {:ok, map()} | {:stop, term(), map()}
   def finish(state, request_id, pending, flags, body, body_bytes) do
-    if ConnectionTimers.expired?(pending.deadline) do
-      complete(state, request_id, pending, {:error, :timeout})
+    if ConnectionTimers.expired?(pending.deadline) and
+         ConnectionDiscardedControlResponse.authoritative?(pending) do
+      state = ConnectionDiscardedResponse.timeout(state, request_id, pending)
+
+      begin_discarded_decode(
+        state,
+        request_id,
+        state.pending[request_id],
+        flags,
+        body,
+        body_bytes
+      )
     else
-      begin_decode(state, request_id, pending, flags, body, body_bytes)
+      if ConnectionTimers.expired?(pending.deadline) do
+        complete(state, request_id, pending, {:error, :timeout})
+      else
+        begin_decode(state, request_id, pending, flags, body, body_bytes)
+      end
     end
   end
 
@@ -28,12 +43,25 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
     case Map.fetch(state.pending, request_id) do
       {:ok,
        %{
+         phase: :discarding_decoding,
+         decode_worker: ^worker,
+         decode_token: ^decode_token
+       } = pending} ->
+        accept_discarded_decode(state, request_id, pending, result)
+
+      {:ok,
+       %{
          phase: :decoding,
          decode_worker: ^worker,
          decode_token: ^decode_token
        } = pending} ->
         if ConnectionTimers.expired?(pending.deadline) do
-          complete(state, request_id, pending, {:error, :timeout})
+          if ConnectionDiscardedControlResponse.authoritative?(pending) do
+            state = ConnectionDiscardedResponse.timeout(state, request_id, pending)
+            accept_discarded_decode(state, request_id, state.pending[request_id], result)
+          else
+            complete(state, request_id, pending, {:error, :timeout})
+          end
         else
           accept_decode(state, request_id, pending, worker, decode_token, result)
         end
@@ -43,7 +71,13 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
     end
   end
 
-  defp begin_decode(state, request_id, pending, flags, body, body_bytes) do
+  def begin_discarded_decode(state, request_id, pending, flags, body, body_bytes),
+    do: begin_decode(state, request_id, pending, flags, body, body_bytes, :discarding_decoding)
+
+  defp begin_decode(state, request_id, pending, flags, body, body_bytes),
+    do: begin_decode(state, request_id, pending, flags, body, body_bytes, :decoding)
+
+  defp begin_decode(state, request_id, pending, flags, body, body_bytes, phase) do
     decode_token = make_ref()
 
     worker =
@@ -58,13 +92,14 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
           body: body,
           body_bytes: body_bytes,
           max_response_bytes: state.max_response_bytes,
-          response_context: pending.response_context
+          response_context: pending.response_context,
+          decode_gate: Map.get(pending, :decode_gate)
         }
       )
 
     decoding =
       Map.merge(pending, %{
-        phase: :decoding,
+        phase: phase,
         decode_token: decode_token,
         decode_worker: worker,
         chunks: [],
@@ -85,7 +120,7 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
   defp complete(state, request_id, pending, result) do
     state =
       state
-      |> apply_window_update(pending.opcode, result)
+      |> ConnectionResponseCapacity.apply_window_update(pending.opcode, result)
       |> ConnectionPending.drop(request_id, pending)
 
     complete_target(state, pending, result)
@@ -122,15 +157,24 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
          {:response, window_limits}
        )
        when target != :heartbeat do
-    previous = capacity_profile(state)
-    state = FlowControl.apply_window_limits(state, window_limits)
-    notify_capacity_change(state, previous)
+    state = ConnectionResponseCapacity.apply_window_limits(state, window_limits)
     {:ok, ConnectionResponseDelivery.begin(state, request_id, pending, worker, decode_token)}
   end
 
   defp accept_decode(state, _request_id, _pending, _worker, _decode_token, _metadata) do
     failure = :invalid_response_decode_metadata
     {:stop, failure, ConnectionRequest.fail_pending(state, failure)}
+  end
+
+  defp accept_discarded_decode(state, request_id, pending, {:response, window_limits}) do
+    state = ConnectionResponseCapacity.apply_window_limits(state, window_limits)
+    state = ConnectionPending.drop(state, request_id, pending)
+    {:ok, ConnectionDrain.maybe_stop(state)}
+  end
+
+  defp accept_discarded_decode(state, request_id, pending, _metadata) do
+    state = ConnectionPending.drop(state, request_id, pending)
+    {:ok, ConnectionDrain.maybe_stop(state)}
   end
 
   defp complete_target(state, %{target: :heartbeat} = pending, {:ok, _value}) do
@@ -148,28 +192,5 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
     ConnectionTimers.cancel(pending.timer)
     ConnectionPending.reply(pending.target, result)
     {:ok, ConnectionDrain.maybe_stop(state)}
-  end
-
-  defp apply_window_update(state, opcode, result) do
-    previous = capacity_profile(state)
-    next_state = FlowControl.apply_window_update(state, opcode, result)
-    notify_capacity_change(next_state, previous)
-
-    next_state
-  end
-
-  defp notify_capacity_change(state, previous) do
-    capacity = capacity_profile(state)
-
-    if capacity != previous do
-      ConnectionEventHandler.capacity_changed(state.event_handler, self(), capacity)
-    end
-  end
-
-  defp capacity_profile(state) do
-    %{
-      max_in_flight: state.max_in_flight,
-      max_in_flight_per_lane: state.max_in_flight_per_lane
-    }
   end
 end
