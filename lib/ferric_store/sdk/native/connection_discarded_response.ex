@@ -26,7 +26,7 @@ defmodule FerricStore.SDK.Native.ConnectionDiscardedResponse do
 
   @spec abandon(map(), non_neg_integer(), map()) :: map()
   def abandon(state, request_id, pending) do
-    if retain_credit?(pending),
+    if retain_response?(pending),
       do: mark(state, request_id, pending),
       else: ConnectionPendingLifecycle.drop(state, request_id, pending)
   end
@@ -115,11 +115,9 @@ defmodule FerricStore.SDK.Native.ConnectionDiscardedResponse do
     }
   end
 
-  defp retain_credit?(%{flow_controlled?: true, phase: phase})
-       when phase in [:sending, :sent],
-       do: true
+  defp retain_response?(%{phase: phase}) when phase in [:sending, :sent], do: true
 
-  defp retain_credit?(_pending), do: false
+  defp retain_response?(_pending), do: false
 
   defp grace_timeout(_state, %{timeout: timeout})
        when is_integer(timeout) and timeout > 0,

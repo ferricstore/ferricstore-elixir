@@ -417,6 +417,42 @@ defmodule FerricStore.SDK.Native.ConnectionTest do
                    1_000
   end
 
+  test "cancelling a sent control request retires its late response" do
+    {server, connection} =
+      start_connection(response_fun: fn _request -> :noreply end, heartbeat_interval: :infinity)
+
+    tag = make_ref()
+
+    assert :ok =
+             Connection.async_request(
+               connection,
+               self(),
+               tag,
+               0x0003,
+               %{},
+               0,
+               1_000
+             )
+
+    assert_receive {:native_server_request, request}, 1_000
+    assert :ok = Connection.cancel(connection, self(), tag)
+
+    assert_eventually(fn ->
+      state = :sys.get_state(connection)
+
+      state.data_in_flight == 0 and state.pending_targets == %{} and
+        match?(%{phase: :discarding}, state.pending[request.request_id])
+    end)
+
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}, 50
+
+    body = <<0::unsigned-16, Codec.encode_value("cancelled")::binary>>
+    assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0, body))
+
+    assert_eventually(fn -> :sys.get_state(connection).pending == %{} end)
+    assert Process.alive?(connection)
+  end
+
   @tag capture_log: true
   test "a sent request without a late response retires the uncertain connection" do
     {_server, connection} =
