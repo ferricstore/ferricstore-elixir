@@ -3,8 +3,8 @@ defmodule FerricStore.SDK.Native.ConnectionDiscardedResponse do
 
   alias FerricStore.SDK.Native.{
     Codec,
-    ConnectionDrain,
     ConnectionDiscardedControlResponse,
+    ConnectionDrain,
     ConnectionPendingLifecycle,
     ConnectionTimers
   }

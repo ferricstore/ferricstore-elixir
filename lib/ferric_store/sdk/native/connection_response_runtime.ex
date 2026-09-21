@@ -2,9 +2,9 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
   @moduledoc false
 
   alias FerricStore.SDK.Native.{
-    ConnectionDrain,
     ConnectionDiscardedControlResponse,
     ConnectionDiscardedResponse,
+    ConnectionDrain,
     ConnectionPending,
     ConnectionRequest,
     ConnectionResponseCapacity,
@@ -55,15 +55,19 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntime do
          decode_worker: ^worker,
          decode_token: ^decode_token
        } = pending} ->
-        if ConnectionTimers.expired?(pending.deadline) do
-          if ConnectionDiscardedControlResponse.authoritative?(pending) do
+        case {
+          ConnectionTimers.expired?(pending.deadline),
+          ConnectionDiscardedControlResponse.authoritative?(pending)
+        } do
+          {true, true} ->
             state = ConnectionDiscardedResponse.timeout(state, request_id, pending)
             accept_discarded_decode(state, request_id, state.pending[request_id], result)
-          else
+
+          {true, false} ->
             complete(state, request_id, pending, {:error, :timeout})
-          end
-        else
-          accept_decode(state, request_id, pending, worker, decode_token, result)
+
+          {false, _authoritative} ->
+            accept_decode(state, request_id, pending, worker, decode_token, result)
         end
 
       _missing_or_stale ->
