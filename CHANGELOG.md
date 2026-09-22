@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.12.5 - 2026-09-22
+
+- Retire cancelled native control responses and preserve authoritative late
+  `WINDOW_UPDATE` capacity changes without delivering duplicate caller results.
+- Validate the release against FerricStore OSS 0.11.21 using the immutable Quay
+  image `quay.io/ferricstore/ferricstore:0.11.21@sha256:d297c91414ecf206671685d6e74efcec715e5f14a96c5cef09ac5d8c4664c74b`.
+
 ## 0.12.4 - 2026-09-20
 
 - Route acknowledged native responses that arrive after their deadline through
