@@ -175,6 +175,230 @@ defmodule FerricStore.SDK.Native.ConnectionResponseRuntimeTest do
     assert final_state.data_in_flight == 0
   end
 
+  test "a WINDOW_UPDATE timeout retains its in-flight authoritative decode" do
+    tag = make_ref()
+    target = {:message, self(), tag}
+    request_id = 46
+    timeout_token = make_ref()
+    decode_token = make_ref()
+    decode_worker = spawn(fn -> Process.sleep(:infinity) end)
+    decode_monitor = Process.monitor(decode_worker)
+    on_exit(fn -> Process.exit(decode_worker, :kill) end)
+
+    timed_out_pending =
+      pending(target,
+        phase: :decoding,
+        opcode: Opcodes.window_update(),
+        flow_controlled?: false,
+        timeout_token: timeout_token,
+        decode_token: decode_token,
+        decode_worker: decode_worker
+      )
+
+    state =
+      response_state(%{request_id => timed_out_pending})
+      |> Map.merge(%{
+        data_in_flight: 0,
+        event_handler: self(),
+        decode: {:response, request_id},
+        configured_max_in_flight: 8,
+        configured_max_in_flight_per_lane: 8
+      })
+
+    assert {:noreply, discarded_state} =
+             ConnectionInfoRuntime.handle(
+               {:request_timeout, request_id, timeout_token},
+               state
+             )
+
+    assert_receive {:ferricstore_connection_response, _connection, ^tag, {:error, :timeout}}
+
+    assert %{phase: :discarding_decoding, target: :discard} =
+             discarded_state.pending[request_id]
+
+    assert {:noreply, final_state} =
+             ConnectionInfoRuntime.handle(
+               {:ferricstore_response_decoded, decode_worker, request_id, decode_token,
+                {:response, {:window_limits, %{max_in_flight: 2, max_in_flight_per_lane: 1}}}},
+               discarded_state
+             )
+
+    assert final_state.pending == %{}
+    assert final_state.max_in_flight == 2
+    assert final_state.max_in_flight_per_lane == 1
+
+    assert_receive {:ferricstore_connection_capacity, _connection,
+                    %{max_in_flight: 2, max_in_flight_per_lane: 1}}
+
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, _result}
+    assert_receive {:DOWN, ^decode_monitor, :process, ^decode_worker, :killed}
+  end
+
+  test "a late authoritative decode applies limits after its deadline without success" do
+    tag = make_ref()
+    target = {:message, self(), tag}
+    request_id = 47
+    decode_token = make_ref()
+    decode_worker = spawn(fn -> Process.sleep(:infinity) end)
+    decode_monitor = Process.monitor(decode_worker)
+    on_exit(fn -> Process.exit(decode_worker, :kill) end)
+
+    pending =
+      pending(target,
+        phase: :decoding,
+        opcode: Opcodes.window_update(),
+        flow_controlled?: false,
+        deadline: System.monotonic_time(:millisecond) - 1,
+        decode_token: decode_token,
+        decode_worker: decode_worker
+      )
+
+    state =
+      response_state(%{request_id => pending})
+      |> Map.merge(%{
+        data_in_flight: 0,
+        event_handler: self(),
+        decode: {:response, request_id},
+        configured_max_in_flight: 8,
+        configured_max_in_flight_per_lane: 8
+      })
+
+    assert {:noreply, final_state} =
+             ConnectionInfoRuntime.handle(
+               {:ferricstore_response_decoded, decode_worker, request_id, decode_token,
+                {:response, {:window_limits, %{max_in_flight: 2, max_in_flight_per_lane: 1}}}},
+               state
+             )
+
+    assert_receive {:ferricstore_connection_response, _connection, ^tag, {:error, :timeout}}
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, {:ok, _result}}
+
+    assert_receive {:ferricstore_connection_capacity, _connection,
+                    %{max_in_flight: 2, max_in_flight_per_lane: 1}}
+
+    refute_receive {:ferricstore_connection_capacity, _connection, _capacity}
+    assert final_state.pending == %{}
+    assert final_state.max_in_flight == 2
+    assert final_state.max_in_flight_per_lane == 1
+    assert_receive {:DOWN, ^decode_monitor, :process, ^decode_worker, :killed}
+  end
+
+  test "a final WINDOW_UPDATE frame after its deadline decodes in a discarded worker" do
+    tag = make_ref()
+    target = {:message, self(), tag}
+    request_id = 48
+    timeout_token = make_ref()
+    gate = self()
+
+    pending =
+      pending(target,
+        phase: :sent,
+        opcode: Opcodes.window_update(),
+        flow_controlled?: false,
+        timeout_token: timeout_token,
+        deadline: System.monotonic_time(:millisecond) - 1,
+        decode_gate: gate
+      )
+
+    state =
+      response_state(%{request_id => pending})
+      |> Map.merge(%{
+        data_in_flight: 0,
+        event_handler: self(),
+        configured_max_in_flight: 8,
+        configured_max_in_flight_per_lane: 8
+      })
+
+    body =
+      <<0::unsigned-16,
+        Codec.encode_value(%{
+          "accepted" => true,
+          "limits" => %{
+            "max_inflight_per_connection" => 2,
+            "max_inflight_per_lane" => 1
+          }
+        })::binary>>
+
+    assert {:ok, decoding_state} =
+             ConnectionResponseRuntime.finish(
+               state,
+               request_id,
+               pending,
+               0,
+               body,
+               byte_size(body)
+             )
+
+    assert_receive {:ferricstore_connection_response, _connection, ^tag, {:error, :timeout}}
+
+    assert %{phase: :discarding_decoding, decode_worker: worker, decode_token: decode_token} =
+             decoding_state.pending[request_id]
+
+    worker_monitor = Process.monitor(worker)
+    assert_receive {:ferricstore_response_decoder_ready, ^worker, ^request_id, ^decode_token}
+
+    send(
+      worker,
+      {:ferricstore_response_decoder_continue, gate, request_id, decode_token}
+    )
+
+    assert_receive decoded =
+                     {:ferricstore_response_decoded, ^worker, ^request_id, ^decode_token, _}
+
+    assert {:noreply, final_state} = ConnectionInfoRuntime.handle(decoded, decoding_state)
+    assert final_state.pending == %{}
+    assert final_state.max_in_flight == 2
+    assert final_state.max_in_flight_per_lane == 1
+
+    assert_receive {:ferricstore_connection_capacity, _connection,
+                    %{max_in_flight: 2, max_in_flight_per_lane: 1}}
+
+    refute_receive {:ferricstore_connection_response, _connection, ^tag, {:ok, _result}}
+    assert_receive {:DOWN, ^worker_monitor, :process, ^worker, :killed}
+  end
+
+  test "stale discarded decode metadata cannot mutate capacity or settle a caller" do
+    request_id = 45
+    decode_token = make_ref()
+    stale_token = make_ref()
+    decode_worker = spawn(fn -> Process.sleep(:infinity) end)
+    decode_monitor = Process.monitor(decode_worker)
+    on_exit(fn -> Process.exit(decode_worker, :kill) end)
+
+    pending =
+      pending(:discard,
+        phase: :discarding_decoding,
+        opcode: Opcodes.window_update(),
+        flow_controlled?: false,
+        decode_token: decode_token,
+        decode_worker: decode_worker
+      )
+
+    state =
+      response_state(%{request_id => pending})
+      |> Map.merge(%{
+        pending_targets: %{},
+        pending_lanes: %{},
+        data_in_flight: 0,
+        decode: {:response, request_id},
+        event_handler: self()
+      })
+
+    assert {:ok, ^state} =
+             ConnectionResponseRuntime.complete_decode(
+               state,
+               decode_worker,
+               request_id,
+               stale_token,
+               {:response, %{max_in_flight: 2, max_in_flight_per_lane: 1}}
+             )
+
+    refute_receive {:ferricstore_connection_capacity, _connection, _capacity}
+    refute_receive {:ferricstore_connection_response, _connection, _tag, _result}
+    assert Process.alive?(decode_worker)
+    refute_receive {:DOWN, ^decode_monitor, :process, ^decode_worker, _reason}
+  end
+
   test "large response decoding does not run on the connection process" do
     tag = make_ref()
     target = {:message, self(), tag}

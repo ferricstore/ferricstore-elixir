@@ -12,7 +12,7 @@ defmodule FerricStore.SDK.Native.ConnectionPendingLifecycle do
   @spec drop(map(), non_neg_integer(), map()) :: map()
   def drop(state, request_id, pending) do
     ConnectionTimers.cancel(Map.get(pending, :timer))
-    decoding? = pending[:phase] in [:decoding, :delivering]
+    decoding? = pending[:phase] in [:decoding, :discarding_decoding, :delivering]
     ConnectionResponseDecoder.stop(pending)
 
     state = %{

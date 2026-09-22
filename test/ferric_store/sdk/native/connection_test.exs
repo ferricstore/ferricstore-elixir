@@ -417,6 +417,515 @@ defmodule FerricStore.SDK.Native.ConnectionTest do
                    1_000
   end
 
+  test "cancelling a sent control request retires its late response" do
+    {server, connection} =
+      start_connection(response_fun: fn _request -> :noreply end, heartbeat_interval: :infinity)
+
+    tag = make_ref()
+
+    assert :ok =
+             Connection.async_request(
+               connection,
+               self(),
+               tag,
+               0x0003,
+               %{},
+               0,
+               1_000
+             )
+
+    assert_receive {:native_server_request, request}, 1_000
+    assert :ok = Connection.cancel(connection, self(), tag)
+
+    assert_eventually(fn ->
+      state = :sys.get_state(connection)
+
+      state.data_in_flight == 0 and state.pending_targets == %{} and
+        match?(%{phase: :discarding}, state.pending[request.request_id])
+    end)
+
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}, 50
+
+    body = <<0::unsigned-16, Codec.encode_value("cancelled")::binary>>
+    assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0, body))
+
+    assert_eventually(fn -> :sys.get_state(connection).pending == %{} end)
+    assert Process.alive?(connection)
+  end
+
+  test "cancelling a sent WINDOW_UPDATE applies accepted late limits without delivery" do
+    {server, connection} =
+      start_connection(
+        response_fun: fn _request -> :noreply end,
+        max_in_flight: 10,
+        max_in_flight_per_lane: 10,
+        event_handler: self(),
+        heartbeat_interval: :infinity
+      )
+
+    tag = make_ref()
+
+    assert :ok =
+             Connection.async_request(
+               connection,
+               self(),
+               tag,
+               0x000D,
+               %{},
+               0,
+               1_000
+             )
+
+    assert_receive {:native_server_request, request}, 1_000
+    assert :ok = Connection.cancel(connection, self(), tag)
+
+    assert_eventually(fn ->
+      :sys.get_state(connection).pending[request.request_id].phase == :discarding
+    end)
+
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}, 50
+
+    body =
+      window_update_body(%{
+        "accepted" => true,
+        "limits" => %{
+          "max_inflight_per_connection" => 2,
+          "max_inflight_per_lane" => 1
+        }
+      })
+
+    assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0, body))
+
+    assert_eventually(fn ->
+      state = :sys.get_state(connection)
+
+      state.max_in_flight == 2 and state.max_in_flight_per_lane == 1 and state.pending == %{}
+    end)
+
+    assert_receive {:ferricstore_connection_capacity, ^connection,
+                    %{max_in_flight: 2, max_in_flight_per_lane: 1}}
+
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}
+    assert Process.alive?(connection)
+  end
+
+  test "large discarded WINDOW_UPDATE decoding stays off the connection process" do
+    {server, connection} =
+      start_connection(
+        response_fun: fn _request -> :noreply end,
+        max_in_flight: 10,
+        max_in_flight_per_lane: 10,
+        event_handler: self(),
+        heartbeat_interval: :infinity
+      )
+
+    tag = make_ref()
+
+    body =
+      window_update_body(%{
+        "accepted" => true,
+        "limits" => %{
+          "max_inflight_per_connection" => 2,
+          "max_inflight_per_lane" => 1
+        },
+        "payload" => String.duplicate("x", 5_000_000)
+      })
+
+    assert :ok =
+             Connection.async_request(
+               connection,
+               self(),
+               tag,
+               0x000D,
+               %{},
+               0,
+               1_000
+             )
+
+    assert_receive {:native_server_request, request}, 1_000
+    assert :ok = Connection.cancel(connection, self(), tag)
+
+    assert_eventually(fn ->
+      :sys.get_state(connection).pending[request.request_id].phase == :discarding
+    end)
+
+    set_decoder_gate(connection, request.request_id)
+    assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0, body))
+
+    assert_receive {:ferricstore_response_decoder_ready, decoder, request_id, decode_token},
+                   1_000
+
+    assert request_id == request.request_id
+
+    assert_eventually(fn ->
+      case :sys.get_state(connection).pending[request.request_id] do
+        %{phase: :discarding_decoding, decode_worker: ^decoder} -> true
+        _missing_or_not_decoding -> false
+      end
+    end)
+
+    assert %{max_in_flight: 10, max_in_flight_per_lane: 10} = Connection.capacity(connection)
+    refute_receive {:ferricstore_connection_capacity, ^connection, _capacity}, 50
+
+    decoder_monitor = Process.monitor(decoder)
+    send(decoder, {:ferricstore_response_decoder_continue, self(), request_id, decode_token})
+
+    assert_eventually(fn ->
+      state = :sys.get_state(connection)
+
+      state.max_in_flight == 2 and state.max_in_flight_per_lane == 1 and state.pending == %{}
+    end)
+
+    assert_receive {:ferricstore_connection_capacity, ^connection,
+                    %{max_in_flight: 2, max_in_flight_per_lane: 1}}
+
+    assert_receive {:DOWN, ^decoder_monitor, :process, ^decoder, :killed}, 1_000
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}
+    assert Process.alive?(connection)
+  end
+
+  test "cancelling a WINDOW_UPDATE during decode preserves the authoritative result" do
+    {server, connection} =
+      start_connection(
+        response_fun: fn _request -> :noreply end,
+        max_in_flight: 10,
+        max_in_flight_per_lane: 10,
+        event_handler: self(),
+        heartbeat_interval: :infinity
+      )
+
+    tag = make_ref()
+
+    body =
+      window_update_body(%{
+        "accepted" => true,
+        "limits" => %{
+          "max_inflight_per_connection" => 2,
+          "max_inflight_per_lane" => 1
+        }
+      })
+
+    <<first::binary-size(6), second::binary>> = body
+
+    assert :ok =
+             Connection.async_request(
+               connection,
+               self(),
+               tag,
+               0x000D,
+               %{},
+               0,
+               2_000
+             )
+
+    assert_receive {:native_server_request, request}, 1_000
+    request_id = request.request_id
+    assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0x20, first))
+
+    assert_eventually(fn ->
+      :sys.get_state(connection).pending[request.request_id].chunk_bytes == 6
+    end)
+
+    set_decoder_gate(connection, request.request_id)
+    assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0, second))
+
+    assert_receive {:ferricstore_response_decoder_ready, decoder, ^request_id, decode_token},
+                   1_000
+
+    assert_eventually(fn ->
+      case :sys.get_state(connection).pending[request.request_id] do
+        %{phase: :decoding, decode_worker: ^decoder} -> true
+        _missing_or_not_decoding -> false
+      end
+    end)
+
+    decoder_monitor = Process.monitor(decoder)
+    assert :ok = Connection.cancel(connection, self(), tag)
+
+    assert_eventually(fn ->
+      state = :sys.get_state(connection)
+
+      state.pending[request.request_id].phase == :discarding_decoding and
+        state.pending[request.request_id].target == :discard and
+        state.pending_targets == %{}
+    end)
+
+    assert Process.alive?(decoder)
+
+    send(
+      decoder,
+      {:ferricstore_response_decoder_continue, self(), request.request_id, decode_token}
+    )
+
+    assert_eventually(fn ->
+      state = :sys.get_state(connection)
+
+      state.max_in_flight == 2 and state.max_in_flight_per_lane == 1 and state.pending == %{}
+    end)
+
+    assert_receive {:ferricstore_connection_capacity, ^connection,
+                    %{max_in_flight: 2, max_in_flight_per_lane: 1}}
+
+    assert_receive {:DOWN, ^decoder_monitor, :process, ^decoder, :killed}, 1_000
+
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}
+    assert Process.alive?(connection)
+  end
+
+  test "a completed WINDOW_UPDATE wins cancellation without duplicate delivery" do
+    {server, connection} =
+      start_connection(
+        response_fun: fn _request -> :noreply end,
+        max_in_flight: 10,
+        max_in_flight_per_lane: 10,
+        event_handler: self(),
+        heartbeat_interval: :infinity
+      )
+
+    tag = make_ref()
+
+    body =
+      window_update_body(%{
+        "accepted" => true,
+        "limits" => %{
+          "max_inflight_per_connection" => 2,
+          "max_inflight_per_lane" => 1
+        }
+      })
+
+    assert :ok =
+             Connection.async_request(
+               connection,
+               self(),
+               tag,
+               0x000D,
+               %{},
+               0,
+               2_000
+             )
+
+    assert_receive {:native_server_request, request}, 1_000
+    assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0, body))
+
+    assert_receive {:ferricstore_connection_response, ^connection, ^tag,
+                    {:ok, %{"accepted" => true}}},
+                   1_000
+
+    assert :ok = Connection.cancel(connection, self(), tag)
+
+    assert_eventually(fn ->
+      state = :sys.get_state(connection)
+
+      state.max_in_flight == 2 and state.max_in_flight_per_lane == 1 and state.pending == %{}
+    end)
+
+    assert_receive {:ferricstore_connection_capacity, ^connection,
+                    %{max_in_flight: 2, max_in_flight_per_lane: 1}}
+
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}
+    assert Process.alive?(connection)
+  end
+
+  test "discarded WINDOW_UPDATE responses ignore rejected and malformed acknowledgements" do
+    responses = [
+      window_update_body(%{
+        "accepted" => false,
+        "limits" => %{
+          "max_inflight_per_connection" => 2,
+          "max_inflight_per_lane" => 1
+        }
+      }),
+      <<0::unsigned-16>>
+    ]
+
+    for body <- responses do
+      {server, connection} =
+        start_connection(
+          response_fun: fn _request -> :noreply end,
+          max_in_flight: 10,
+          max_in_flight_per_lane: 10,
+          event_handler: self(),
+          heartbeat_interval: :infinity
+        )
+
+      tag = make_ref()
+
+      assert :ok =
+               Connection.async_request(
+                 connection,
+                 self(),
+                 tag,
+                 0x000D,
+                 %{},
+                 0,
+                 1_000
+               )
+
+      assert_receive {:native_server_request, request}, 1_000
+      assert :ok = Connection.cancel(connection, self(), tag)
+      assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0, body))
+
+      assert_eventually(fn -> :sys.get_state(connection).pending == %{} end)
+      assert %{max_in_flight: 10, max_in_flight_per_lane: 10} = Connection.capacity(connection)
+      refute_receive {:ferricstore_connection_capacity, ^connection, _capacity}, 50
+      refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}, 50
+      assert Process.alive?(connection)
+    end
+  end
+
+  @tag capture_log: true
+  test "a cancelled WINDOW_UPDATE without a late response retires the connection" do
+    {_server, connection} =
+      start_connection(
+        response_fun: fn _request -> :noreply end,
+        heartbeat_interval: :infinity
+      )
+
+    monitor = Process.monitor(connection)
+    tag = make_ref()
+
+    assert :ok =
+             Connection.async_request(
+               connection,
+               self(),
+               tag,
+               0x000D,
+               %{},
+               0,
+               30
+             )
+
+    assert_receive {:native_server_request, _request}, 1_000
+    assert :ok = Connection.cancel(connection, self(), tag)
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}, 50
+    assert_receive {:DOWN, ^monitor, :process, ^connection, :late_response_timeout}, 1_000
+  end
+
+  test "cancelling after a WINDOW_UPDATE chunk preserves its authoritative side effect" do
+    {server, connection} =
+      start_connection(
+        response_fun: fn _request -> :noreply end,
+        max_in_flight: 10,
+        max_in_flight_per_lane: 10,
+        event_handler: self(),
+        heartbeat_interval: :infinity
+      )
+
+    tag = make_ref()
+
+    body =
+      window_update_body(%{
+        "accepted" => true,
+        "limits" => %{
+          "max_inflight_per_connection" => 2,
+          "max_inflight_per_lane" => 1
+        }
+      })
+
+    <<first::binary-size(6), second::binary>> = body
+
+    assert :ok =
+             Connection.async_request(
+               connection,
+               self(),
+               tag,
+               0x000D,
+               %{},
+               0,
+               2_000
+             )
+
+    assert_receive {:native_server_request, request}, 1_000
+    assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0x20, first))
+
+    assert_eventually(fn ->
+      state = :sys.get_state(connection)
+
+      state.pending[request.request_id].phase == :sent and
+        state.pending[request.request_id].chunk_bytes == byte_size(first)
+    end)
+
+    assert :ok = Connection.cancel(connection, self(), tag)
+
+    assert_eventually(fn ->
+      :sys.get_state(connection).pending[request.request_id].phase == :discarding
+    end)
+
+    assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0, second))
+
+    assert_eventually(fn ->
+      state = :sys.get_state(connection)
+
+      state.max_in_flight == 2 and state.max_in_flight_per_lane == 1 and state.pending == %{}
+    end)
+
+    assert_receive {:ferricstore_connection_capacity, ^connection,
+                    %{max_in_flight: 2, max_in_flight_per_lane: 1}}
+
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}
+    assert Process.alive?(connection)
+  end
+
+  @tag capture_log: true
+  test "a discarded WINDOW_UPDATE decoder stall retires the connection" do
+    {server, connection} =
+      start_connection(
+        response_fun: fn _request -> :noreply end,
+        heartbeat_interval: :infinity
+      )
+
+    monitor = Process.monitor(connection)
+    tag = make_ref()
+
+    body =
+      window_update_body(%{
+        "accepted" => true,
+        "limits" => %{
+          "max_inflight_per_connection" => 2,
+          "max_inflight_per_lane" => 1
+        }
+      })
+
+    assert :ok =
+             Connection.async_request(
+               connection,
+               self(),
+               tag,
+               0x000D,
+               %{},
+               0,
+               1_000
+             )
+
+    assert_receive {:native_server_request, request}, 1_000
+    request_id = request.request_id
+
+    set_decoder_gate(connection, request_id)
+    assert [:ok] = NativeServer.send_raw(server, raw_response_frame(request, 0, body))
+
+    assert_receive {:ferricstore_response_decoder_ready, decoder, ^request_id, _decode_token},
+                   1_000
+
+    assert_eventually(fn ->
+      case :sys.get_state(connection).pending[request.request_id] do
+        %{phase: :decoding, decode_worker: ^decoder} -> true
+        _missing_or_not_decoding -> false
+      end
+    end)
+
+    decoder_monitor = Process.monitor(decoder)
+
+    assert :ok = Connection.cancel(connection, self(), tag)
+
+    assert_eventually(fn ->
+      :sys.get_state(connection).pending[request.request_id].phase == :discarding_decoding
+    end)
+
+    refute_receive {:ferricstore_connection_response, ^connection, ^tag, _result}
+    assert_receive {:DOWN, ^monitor, :process, ^connection, :late_response_timeout}, 3_000
+    assert_receive {:DOWN, ^decoder_monitor, :process, ^decoder, :killed}, 1_000
+  end
+
   @tag capture_log: true
   test "a sent request without a late response retires the uncertain connection" do
     {_server, connection} =
@@ -969,6 +1478,10 @@ defmodule FerricStore.SDK.Native.ConnectionTest do
       request.request_id::unsigned-64, byte_size(body)::unsigned-32, body::binary>>
   end
 
+  defp window_update_body(acknowledgement) do
+    <<0::unsigned-16, Codec.encode_value(acknowledgement)::binary>>
+  end
+
   defp assert_eventually(fun, attempts \\ 50)
 
   defp assert_eventually(fun, attempts) when attempts > 0 do
@@ -981,6 +1494,15 @@ defmodule FerricStore.SDK.Native.ConnectionTest do
   end
 
   defp assert_eventually(fun, 0), do: assert(fun.())
+
+  defp set_decoder_gate(connection, request_id) do
+    gate = self()
+
+    :sys.replace_state(connection, fn state ->
+      pending = Map.fetch!(state.pending, request_id)
+      %{state | pending: Map.put(state.pending, request_id, Map.put(pending, :decode_gate, gate))}
+    end)
+  end
 
   defp raw_server_frame(opcode, flags, body, lane_id \\ 0) do
     <<"FSNP", 0x81, flags, lane_id::unsigned-32, opcode::unsigned-16, 0::unsigned-64,
