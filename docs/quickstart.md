@@ -29,7 +29,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  quay.io/ferricstore/ferricstore:0.11.23@sha256:120e0bba201fd3038befea54b100accf0ef8ff21563fdd113c3fc7b019555dcd
+  quay.io/ferricstore/ferricstore:0.11.24@sha256:910a7b62effd5687607907c8f4b414ba95d988c3534b18205c33e502c76c3974
 ```
 
 ## Connect
