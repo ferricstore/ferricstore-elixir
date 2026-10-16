@@ -46,6 +46,7 @@ defmodule FerricStore.Protocol.CommandSpec.Metadata do
                      :cluster_slots,
                      :cluster_status,
                      :cluster_role,
+                     :cluster_features,
                      :ferricstore_key_info,
                      :ferricstore_hotness,
                      :ferricstore_metrics

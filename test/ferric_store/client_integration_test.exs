@@ -271,8 +271,22 @@ defmodule FerricStore.ClientIntegrationTest do
     assert classified ==
              MapSet.new(Map.keys(Admin.opcodes()))
 
-    for {function, payload} <- admin_safe_invocation_cases(key) do
+    assert {:ok, options} = SDK.request(client, :options, %{})
+    advertised = MapSet.new(options["opcodes"], & &1["name"])
+
+    # The 0.11.4 floor lacks commands added later, such as CLUSTER.FEATURES.
+    for {function, payload} <- admin_safe_invocation_cases(key),
+        MapSet.member?(advertised, Opcodes.name(Map.fetch!(Admin.opcodes(), function))) do
       assert_docker_command_response(apply(Admin, function, [client, payload]))
+    end
+
+    if MapSet.member?(advertised, "CLUSTER.FEATURES") do
+      assert {:ok, features} = Admin.cluster_features(client)
+      assert features =~ "supported: "
+
+      # Level 0 is always rejected, so this exercises the raise without changing the cluster.
+      assert {:error, reason} = Admin.cluster_features_raise(client, %{args: ["0"]})
+      assert_error_message(reason, "feature level must be a positive integer")
     end
 
     assert {:ok, health} = Admin.cluster_health(client)
@@ -1745,6 +1759,7 @@ defmodule FerricStore.ClientIntegrationTest do
       cluster_slots: %{},
       cluster_status: %{},
       cluster_role: %{},
+      cluster_features: %{},
       ferricstore_key_info: %{key: key},
       ferricstore_config: %{args: ["GET", "native-port"]},
       ferricstore_hotness: %{args: [key]},
@@ -1759,6 +1774,7 @@ defmodule FerricStore.ClientIntegrationTest do
       :cluster_failover,
       :cluster_promote,
       :cluster_demote,
+      :cluster_features_raise,
       :ferricstore_blobgc
     ]
   end

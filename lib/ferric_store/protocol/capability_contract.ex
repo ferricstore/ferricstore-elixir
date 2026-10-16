@@ -97,7 +97,13 @@ defmodule FerricStore.Protocol.CapabilityContract do
     "ZSCORE" => ["key", "member"]
   }
 
-  @required_opcodes Enum.map(CommandSpec.all(), &Map.take(&1, [:name, :opcode]))
+  # Commands newer than the 0.11.4 compatibility floor. Servers without them
+  # still connect; a call to one fails with the server's own error.
+  @optional_opcodes ["CLUSTER.FEATURES", "CLUSTER.FEATURES.RAISE"]
+
+  @required_opcodes CommandSpec.all()
+                    |> Enum.reject(&(&1.name in @optional_opcodes))
+                    |> Enum.map(&Map.take(&1, [:name, :opcode]))
   @optional_fields Map.merge(
                      CapabilityOptionalFields.Core.all(),
                      CapabilityOptionalFields.Flow.all()

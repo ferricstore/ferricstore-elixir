@@ -132,7 +132,9 @@ defmodule FerricStore.Protocol.CommandSpec.Entries do
     ferricstore_config: {"FERRICSTORE.CONFIG", 0x030D},
     ferricstore_hotness: {"FERRICSTORE.HOTNESS", 0x030E},
     ferricstore_metrics: {"FERRICSTORE.METRICS", 0x030F},
-    ferricstore_blobgc: {"FERRICSTORE.BLOBGC", 0x0310}
+    ferricstore_blobgc: {"FERRICSTORE.BLOBGC", 0x0310},
+    cluster_features: {"CLUSTER.FEATURES", 0x0311},
+    cluster_features_raise: {"CLUSTER.FEATURES.RAISE", 0x0312}
   ]
 
   @spec all() :: keyword({binary(), non_neg_integer()})
