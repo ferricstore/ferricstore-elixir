@@ -10,6 +10,8 @@
   FerricStore OSS 0.12.0 image. The 0.11.4 compatibility floor remains unchanged.
 - Update the verification lock to patched Mint 1.10.2 and compatible HPAX 1.1.0
   to satisfy the dependency security audit.
+- Require the test-only Bandit server at `~> 1.13` (locked at 1.13.1) for
+  EEF-CVE-2026-105659 and EEF-CVE-2026-105660, which fail `mix hex.audit`.
 
 ## 0.12.5 - 2026-09-22
 
