@@ -16,15 +16,26 @@ defmodule FerricStore.Architecture.DocumentationContractTest do
     assert Mix.Project.config()[:version] == "0.12.5"
     assert FerricStore.minimum_server_version() == "0.11.4"
     assert FerricStore.SDK.minimum_server_version() == "0.11.4"
-    assert FerricStore.server_version_requirement() == "~> 0.11.4"
-    assert FerricStore.SDK.server_version_requirement() == "~> 0.11.4"
+    assert FerricStore.server_version_requirement() == "~> 0.11.4 or ~> 0.12.0"
+    assert FerricStore.SDK.server_version_requirement() == "~> 0.11.4 or ~> 0.12.0"
     assert FerricStore.Compatibility.protocol_version() == 1
+
+    # The SDK is validated against the 0.11.4 floor and the 0.12.0 release; an
+    # unvalidated later minor stays outside the requirement.
+    requirement = Version.parse_requirement!(FerricStore.server_version_requirement())
+
+    for version <- ["0.11.4", "0.11.24", "0.12.0", "0.12.3"],
+        do: assert(Version.match?(version, requirement), version)
+
+    for version <- ["0.11.3", "0.13.0"],
+        do: refute(Version.match?(version, requirement), version)
 
     compatibility = File.read!(Path.join(@root, "lib/ferric_store/compatibility.ex"))
     assert compatibility =~ "SDK 0.12.5 requires server"
 
     for path <- ["README.md", "docs/quickstart.md"] do
-      assert path |> then(&File.read!(Path.join(@root, &1))) =~ "FerricStore `~> 0.11.4`"
+      assert path |> then(&File.read!(Path.join(@root, &1))) =~
+               "FerricStore `~> 0.11.4 or ~> 0.12.0`"
     end
   end
 

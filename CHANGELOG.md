@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Accept FerricStore 0.12: `server_version_requirement/0` is now
+  `"~> 0.11.4 or ~> 0.12.0"` (it was `"~> 0.11.4"`, which excluded 0.12.0).
 - Add `FerricStore.SDK.Admin.cluster_features/1` and `cluster_features_raise/2`
   for FerricStore 0.12.0 cluster feature levels (`CLUSTER.FEATURES` 0x0311 and
   `CLUSTER.FEATURES.RAISE` 0x0312). The connection contract does not require

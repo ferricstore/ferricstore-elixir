@@ -2,7 +2,7 @@
 
 Elixir SDK for FerricStore and FerricFlow over native TCP and stateless HTTP.
 
-Status: public beta. SDK `0.12.5` requires FerricStore `~> 0.11.4`, negotiates
+Status: public beta. SDK `0.12.5` requires FerricStore `~> 0.11.4 or ~> 0.12.0`, negotiates
 compact Stream mode 34 and compact Pub/Sub mode 35 with FerricStore 0.11.8 and
 later, and is validated against FerricStore 0.12.0. Native wire framing and the
 generic compatibility paths remain protocol v1. APIs may change before `1.0`, but the SDK is
