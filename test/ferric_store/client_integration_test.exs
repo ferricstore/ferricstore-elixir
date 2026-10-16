@@ -271,16 +271,15 @@ defmodule FerricStore.ClientIntegrationTest do
     assert classified ==
              MapSet.new(Map.keys(Admin.opcodes()))
 
-    assert {:ok, options} = SDK.request(client, :options, %{})
-    advertised = MapSet.new(options["opcodes"], & &1["name"])
-
     # The 0.11.4 floor lacks commands added later, such as CLUSTER.FEATURES.
+    available = server_command_names(client)
+
     for {function, payload} <- admin_safe_invocation_cases(key),
-        MapSet.member?(advertised, Opcodes.name(Map.fetch!(Admin.opcodes(), function))) do
+        MapSet.member?(available, Opcodes.name(Map.fetch!(Admin.opcodes(), function))) do
       assert_docker_command_response(apply(Admin, function, [client, payload]))
     end
 
-    if MapSet.member?(advertised, "CLUSTER.FEATURES") do
+    if MapSet.member?(available, "CLUSTER.FEATURES") do
       assert {:ok, features} = Admin.cluster_features(client)
       assert features =~ "supported: "
 
@@ -1750,6 +1749,12 @@ defmodule FerricStore.ClientIntegrationTest do
   end
 
   defp same_slot_key(tag, suffix), do: "elixir-sdk:{#{tag}}:#{suffix}"
+
+  # The server's own command catalog, which both native and HTTP transports serve.
+  defp server_command_names(client) do
+    assert {:ok, catalog} = SDK.command(client, "COMMAND")
+    MapSet.new(catalog, fn [name | _rest] -> String.upcase(name) end)
+  end
 
   defp admin_safe_invocation_cases(key) do
     [
