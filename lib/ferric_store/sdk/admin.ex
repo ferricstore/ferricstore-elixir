@@ -21,6 +21,8 @@ defmodule FerricStore.SDK.Admin do
     cluster_promote: :cluster_promote,
     cluster_demote: :cluster_demote,
     cluster_role: :cluster_role,
+    cluster_features: :cluster_features,
+    cluster_features_raise: :cluster_features_raise,
     ferricstore_key_info: :ferricstore_key_info,
     ferricstore_config: :ferricstore_config,
     ferricstore_hotness: :ferricstore_hotness,

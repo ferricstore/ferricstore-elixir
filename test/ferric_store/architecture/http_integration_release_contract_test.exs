@@ -39,7 +39,7 @@ defmodule FerricStore.Architecture.HTTPIntegrationReleaseContractTest do
       |> Enum.each(&assert String.contains?(&1, "@sha256:"))
     end
 
-    assert File.read!("mix.exs") =~ ~s({:bandit, "~> 1.12.4", only: :test})
+    assert File.read!("mix.exs") =~ ~s({:bandit, "~> 1.13", only: :test})
     refute File.read!("mix.lock") =~ ~s("cowlib":)
 
     readme = File.read!("README.md")

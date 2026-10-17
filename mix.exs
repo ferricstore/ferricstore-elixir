@@ -40,7 +40,7 @@ defmodule FerricStore.MixProject do
   defp deps do
     [
       {:arch_test, "~> 0.3.1", only: [:dev, :test], runtime: false},
-      {:bandit, "~> 1.12.4", only: :test},
+      {:bandit, "~> 1.13", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false},
       {:finch, "~> 0.23.0"},

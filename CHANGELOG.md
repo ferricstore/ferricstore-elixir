@@ -2,10 +2,18 @@
 
 ## Unreleased
 
+- Accept FerricStore 0.12: `server_version_requirement/0` is now
+  `"~> 0.11.4 or ~> 0.12.0"` (it was `"~> 0.11.4"`, which excluded 0.12.0).
+- Add `FerricStore.SDK.Admin.cluster_features/1` and `cluster_features_raise/2`
+  for FerricStore 0.12.0 cluster feature levels (`CLUSTER.FEATURES` 0x0311 and
+  `CLUSTER.FEATURES.RAISE` 0x0312). The connection contract does not require
+  them, so servers back to the 0.11.4 floor still connect.
 - Refresh current-server integration and documentation pins to the immutable
-  FerricStore OSS 0.11.24 image. The 0.11.4 compatibility floor remains unchanged.
+  FerricStore OSS 0.12.0 image. The 0.11.4 compatibility floor remains unchanged.
 - Update the verification lock to patched Mint 1.10.2 and compatible HPAX 1.1.0
   to satisfy the dependency security audit.
+- Require the test-only Bandit server at `~> 1.13` (locked at 1.13.1) for
+  EEF-CVE-2026-105659 and EEF-CVE-2026-105660, which fail `mix hex.audit`.
 
 ## 0.12.5 - 2026-09-22
 

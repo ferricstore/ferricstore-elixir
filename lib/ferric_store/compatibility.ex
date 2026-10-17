@@ -3,11 +3,11 @@ defmodule FerricStore.Compatibility do
   FerricStore server and native wire compatibility for this SDK release.
 
   FerricStore 0.11 is a breaking beta API contract. SDK 0.12.5 requires server
-  `~> 0.11.4`; native wire framing remains protocol v1.
+  `~> 0.11.4 or ~> 0.12.0`; native wire framing remains protocol v1.
   """
 
   @minimum_server_version "0.11.4"
-  @server_version_requirement "~> 0.11.4"
+  @server_version_requirement "~> 0.11.4 or ~> 0.12.0"
   @protocol_version 1
 
   @spec minimum_server_version() :: binary()
