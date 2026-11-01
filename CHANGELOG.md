@@ -9,7 +9,7 @@
   `CLUSTER.FEATURES.RAISE` 0x0312). The connection contract does not require
   them, so servers back to the 0.11.4 floor still connect.
 - Refresh current-server integration and documentation pins to the immutable
-  FerricStore OSS 0.12.0 image. The 0.11.4 compatibility floor remains unchanged.
+  FerricStore OSS 0.12.17 image. The 0.11.4 compatibility floor remains unchanged.
 - Update the verification lock to patched Mint 1.10.2 and compatible HPAX 1.1.0
   to satisfy the dependency security audit.
 - Require the test-only Bandit server at `~> 1.13` (locked at 1.13.1) for
