@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.13.0 - 2026-11-01
+
 - Accept FerricStore 0.12: `server_version_requirement/0` is now
   `"~> 0.11.4 or ~> 0.12.0"` (it was `"~> 0.11.4"`, which excluded 0.12.0).
 - Add `FerricStore.SDK.Admin.cluster_features/1` and `cluster_features_raise/2`
