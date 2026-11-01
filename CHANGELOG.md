@@ -9,9 +9,11 @@
   `CLUSTER.FEATURES.RAISE` 0x0312). The connection contract does not require
   them, so servers back to the 0.11.4 floor still connect.
 - Refresh current-server integration and documentation pins to the immutable
-  FerricStore OSS 0.12.0 image. The 0.11.4 compatibility floor remains unchanged.
+  FerricStore OSS 0.12.17 image. The 0.11.4 compatibility floor remains unchanged.
 - Update the verification lock to patched Mint 1.10.2 and compatible HPAX 1.1.0
   to satisfy the dependency security audit.
+- Update the test-only Bandit to 1.14.1 (and Plug.Crypto to 2.2.1) for
+  EEF-CVE-2026-111101, -114216 and -114213, which `mix hex.audit` reports.
 - Require the test-only Bandit server at `~> 1.13` (locked at 1.13.1) for
   EEF-CVE-2026-105659 and EEF-CVE-2026-105660, which fail `mix hex.audit`.
 
