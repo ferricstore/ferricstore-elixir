@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Test against the immutable FerricStore OSS 0.12.18 image (from 0.12.17).
+  The 0.11.4 compatibility floor remains unchanged.
+
 ## 0.13.0 - 2026-11-01
 
 - Accept FerricStore 0.12: `server_version_requirement/0` is now
