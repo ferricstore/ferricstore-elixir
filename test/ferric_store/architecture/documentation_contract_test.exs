@@ -20,11 +20,11 @@ defmodule FerricStore.Architecture.DocumentationContractTest do
     assert FerricStore.SDK.server_version_requirement() == "~> 0.11.4 or ~> 0.12.0"
     assert FerricStore.Compatibility.protocol_version() == 1
 
-    # The SDK is validated against the 0.11.4 floor and the 0.12.18 release; an
+    # The SDK is validated against the 0.11.4 floor and the 0.12.19 release; an
     # unvalidated later minor stays outside the requirement.
     requirement = Version.parse_requirement!(FerricStore.server_version_requirement())
 
-    for version <- ["0.11.4", "0.11.24", "0.12.0", "0.12.3", "0.12.17", "0.12.18"],
+    for version <- ["0.11.4", "0.11.24", "0.12.0", "0.12.3", "0.12.17", "0.12.18", "0.12.19"],
         do: assert(Version.match?(version, requirement), version)
 
     for version <- ["0.11.3", "0.13.0"],
