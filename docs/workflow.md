@@ -189,6 +189,47 @@ chosen by the application. When deriving them from the client wall clock, keep
 hosts synchronized and allow for clock skew. Once submitted, whether work is
 due is still decided using server time.
 
+## Fan-out and fan-in
+
+`FerricStore.Workflow.wait_for_children/4` creates child Flows and parks the
+claimed parent in `:wait_state` in one fenced command. The parent waits without
+a lease or a worker. FerricStore moves it to `:success` once the group resolves,
+or to `:failure` at the first failed child (unless `on_child_failed: :ignore`).
+Claim the success state as usual and read every child's status and result with
+`child_results/3`:
+
+```elixir
+report = FerricStore.Workflow.new(client, "report", initial_state: "split", codec: FerricStore.Codec.Term)
+
+[job] = FerricStore.Workflow.claim(report, "split", limit: 1)
+
+FerricStore.Workflow.wait_for_children(report, job,
+  [
+    %{id: job["id"] <> ":part-1", type: "report_part", payload: %{part: 1}},
+    %{id: job["id"] <> ":part-2", type: "report_part", payload: %{part: 2}}
+  ],
+  group_id: "parts",
+  wait_state: "waiting_for_parts",
+  success: "join",
+  failure: "failed"
+)
+
+# Later, once a worker claims the parent in "join":
+[job] = FerricStore.Workflow.claim(report, "join", limit: 1)
+%FerricStore.Flow.ChildGroupResults{children: parts} =
+  FerricStore.Workflow.child_results(report, job, group_id: "parts")
+
+Enum.map(parts, & &1.result)
+```
+
+Use `wait_for_children/4` rather than spawning the children and then
+transitioning the parent: a fast child can finish before the transition
+commits. `:wait` is `:all` (the default) or `:any`. Children are ordered by id,
+and each `FerricStore.Flow.ChildResult` has a `status` of `"running"`,
+`"completed"`, `"failed"`, or `"cancelled"`. Fan-in needs FerricStore 0.11.19
+or newer. `FerricStore.Flow.Children` offers the same two functions on a client
+for code outside a `FerricStore.Workflow`.
+
 ## Retry, fail, cancel
 
 ```elixir

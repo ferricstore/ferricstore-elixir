@@ -7,6 +7,7 @@ defmodule FerricStore.Workflow do
   """
 
   alias FerricStore.Flow
+  alias FerricStore.Flow.Children
   alias FerricStore.Flow.ConsumerConfig
   alias FerricStore.Flow.Options
   alias FerricStore.Result
@@ -127,6 +128,39 @@ defmodule FerricStore.Workflow do
       opts,
       &Flow.step(workflow.client, job, &1)
     )
+  end
+
+  @doc """
+  Creates `children` and parks the claimed `job` in `:wait_state` until they
+  finish, in one fenced command.
+
+  See `FerricStore.Flow.Children.wait_for_children/4`; the workflow codec is
+  applied automatically.
+  """
+  @spec wait_for_children(t(), map(), [map() | keyword()], keyword()) ::
+          term() | {:error, FerricStore.Error.t()}
+  def wait_for_children(%__MODULE__{} = workflow, job, children, opts) do
+    opts = Keyword.put_new(opts, :codec, workflow.codec)
+    Children.wait_for_children(workflow.client, job, children, opts)
+  end
+
+  @doc """
+  Reads a child group of `parent`, a claimed job or a Flow id, with the workflow
+  codec. See `FerricStore.Flow.Children.child_results/3`.
+  """
+  @spec child_results(t(), map() | binary(), keyword()) ::
+          FerricStore.Flow.ChildGroupResults.t() | nil | {:error, FerricStore.Error.t()}
+  def child_results(%__MODULE__{} = workflow, parent, opts \\ []) do
+    opts = Keyword.put_new(opts, :codec, workflow.codec)
+
+    case parent do
+      %{} = job ->
+        opts = Keyword.put_new(opts, :partition_key, job["partition_key"])
+        Children.child_results(workflow.client, job["id"], opts)
+
+      id ->
+        Children.child_results(workflow.client, id, opts)
+    end
   end
 
   def complete(%__MODULE__{} = workflow, id, opts) do
