@@ -289,6 +289,11 @@ A committed result is returned without running the closure again. External
 providers still need a stable idempotency key because a worker can stop after
 the provider succeeds but before FerricStore commits the result.
 
+To fan out to child Flows and wait for all of them, use
+`FerricStore.Workflow.wait_for_children/4` and read their results with
+`FerricStore.Workflow.child_results/3`; see the
+[workflow guide](docs/workflow.md#fan-out-and-fan-in).
+
 Waiting on a timer, signal, approval, or schedule must release the active claim;
 see the [workflow guide](docs/workflow.md#waiting-without-occupying-a-worker) for
 the complete handoff pattern. `step_continue/3` remains available only as a

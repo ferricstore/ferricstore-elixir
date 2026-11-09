@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add `FerricStore.Workflow.wait_for_children/4` and
+  `FerricStore.Flow.Children.wait_for_children/4`, which create child Flows and
+  park the claimed parent in one fenced `FLOW.SPAWN_CHILDREN`, and
+  `child_results/3` on both, which reads a child group's statuses and every
+  child's decoded result or error in one value read
+  (`FerricStore.Flow.ChildGroupResults`). Fan-in needs FerricStore 0.11.19 or
+  newer.
 - Test against the immutable FerricStore OSS 0.12.19 image (from 0.12.18).
   The 0.11.4 compatibility floor remains unchanged.
 
