@@ -4,7 +4,7 @@ Elixir SDK for FerricStore and FerricFlow over native TCP and stateless HTTP.
 
 Status: public beta. SDK `0.13.1` requires FerricStore `~> 0.11.4 or ~> 0.12.0`, negotiates
 compact Stream mode 34 and compact Pub/Sub mode 35 with FerricStore 0.11.8 and
-later, and is validated against FerricStore 0.12.18. Native wire framing and the
+later, and is validated against FerricStore 0.12.19. Native wire framing and the
 generic compatibility paths remain protocol v1. APIs may change before `1.0`, but the SDK is
 covered by command-construction tests, architecture tests, Docker-backed
 integration tests, and local benchmark scripts.
@@ -48,7 +48,7 @@ mix test
 
 ### 2. Start FerricStore
 
-For local development, run the same immutable FerricStore 0.12.18 image used by
+For local development, run the same immutable FerricStore 0.12.19 image used by
 the SDK integration workflow:
 
 ```bash
@@ -57,7 +57,7 @@ docker run --rm \
   -e FERRICSTORE_NATIVE_ADVERTISE_HOST=127.0.0.1 \
   -e FERRICSTORE_NATIVE_ADVERTISE_PORT=6388 \
   -p 6388:6388 \
-  quay.io/ferricstore/ferricstore:0.12.18@sha256:e98e6ef91e028965598a2ed1b68981bab826a64749d97f6fecd6ecd4687bd3e1
+  quay.io/ferricstore/ferricstore:0.12.19@sha256:91364b8a9f1e20fc530154068c9a0dedbf11b2d134b92692b258feeb784eff7d
 ```
 
 The SDK examples assume:
@@ -122,7 +122,7 @@ Run the complete HTTP-compatible integration surface through a real TLS
 listener with ACL authentication using:
 
 ```bash
-FERRICSTORE_TEST_IMAGE=quay.io/ferricstore/ferricstore:0.12.18@sha256:e98e6ef91e028965598a2ed1b68981bab826a64749d97f6fecd6ecd4687bd3e1 \
+FERRICSTORE_TEST_IMAGE=quay.io/ferricstore/ferricstore:0.12.19@sha256:91364b8a9f1e20fc530154068c9a0dedbf11b2d134b92692b258feeb784eff7d \
   scripts/test_http_integration.sh
 ```
 
