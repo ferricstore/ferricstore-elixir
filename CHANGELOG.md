@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.14.0 - 2026-11-09
+
 - Add `FerricStore.Workflow.wait_for_children/4` and
   `FerricStore.Flow.Children.wait_for_children/4`, which create child Flows and
   park the claimed parent in one fenced `FLOW.SPAWN_CHILDREN`, and
