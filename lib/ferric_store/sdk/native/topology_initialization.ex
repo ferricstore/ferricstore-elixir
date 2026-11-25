@@ -8,11 +8,11 @@ defmodule FerricStore.SDK.Native.TopologyInitialization do
           State.t(),
           (State.t(), term(), pid(), map() -> State.t()),
           (State.t() -> State.t()),
-          (State.t(), pid() -> State.t())
+          (State.t(), pid(), [binary()] -> State.t())
         ) :: {:ok, State.t()} | {:error, term()}
   def run(%State{} = state, track_connection, warm_connections, initialize_events)
       when is_function(track_connection, 4) and is_function(warm_connections, 1) and
-             is_function(initialize_events, 2) do
+             is_function(initialize_events, 3) do
     opts = [
       connection_supervisor: state.connection_supervisor,
       endpoint_policy: state.endpoint_policy,
@@ -28,14 +28,14 @@ defmodule FerricStore.SDK.Native.TopologyInitialization do
     ]
 
     case TopologyBootstrap.run(TopologyRuntime.candidates(state), opts) do
-      {:ok, topology, connection, key, capacity} ->
+      {:ok, topology, connection, key, capacity, events} ->
         state =
           state
           |> TopologyRuntime.put_initial(topology)
           |> track_connection.(key, connection, capacity)
           |> TopologyRuntime.prune()
           |> warm_connections.()
-          |> initialize_events.(connection)
+          |> initialize_events.(connection, events)
 
         {:ok, state}
 

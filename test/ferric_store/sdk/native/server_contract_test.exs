@@ -1,7 +1,7 @@
 defmodule FerricStore.SDK.Native.ServerContractTest do
   use ExUnit.Case, async: true
 
-  alias FerricStore.Protocol.{CapabilityContract, CommandSpec}
+  alias FerricStore.Protocol.CapabilityContract
   alias FerricStore.SDK.Native.{ServerContract, ServerResponseCodecs}
   alias FerricStore.Test.NativeServer
 
@@ -113,19 +113,74 @@ defmodule FerricStore.SDK.Native.ServerContractTest do
     assert "catchup_policy" in CapabilityContract.required_schema_fields()["FLOW.SCHEDULE.CREATE"]
   end
 
-  test "rejects a server that omits any current SDK opcode" do
-    opcodes =
-      CommandSpec.all()
-      |> Enum.reject(&(&1.name == "GET"))
-      |> Enum.map(&%{"name" => &1.name, "opcode" => &1.opcode})
+  test "accepts a workflow-only server that advertises only the commands it serves" do
+    assert :ok = ServerContract.validate(NativeServer.workflow_only_startup_payload())
+  end
 
-    startup =
-      NativeServer.startup_payload(%{
-        "capabilities" => %{"opcodes" => opcodes}
-      })
+  test "checks every schema a server advertises, but not commands it leaves out" do
+    startup = NativeServer.workflow_only_startup_payload()
 
-    assert {:error, {:incompatible_server_contract, %{command: "GET", missing_opcode: 0x0101}}} =
-             ServerContract.validate(startup)
+    assert {:error,
+            {:incompatible_server_contract,
+             %{
+               command: "FLOW.POLICY.SET",
+               missing_supported_fields: ["governance", "deadline_ms"]
+             }}} =
+             startup
+             |> put_in(
+               ["capabilities", "schemas", "FLOW.POLICY.SET", "fields"],
+               CapabilityContract.required_schema_fields()["FLOW.POLICY.SET"] --
+                 ["governance", "deadline_ms"]
+             )
+             |> ServerContract.validate()
+
+    assert {:error,
+            {:incompatible_server_contract,
+             %{command: "FLOW.COMPLETE", missing_required_fields: ["fencing_token"]}}} =
+             startup
+             |> put_in(["capabilities", "schemas", "FLOW.COMPLETE"], %{
+               "required" => ["id", "lease_token"],
+               "fields" => CapabilityContract.required_schema_fields()["FLOW.COMPLETE"]
+             })
+             |> ServerContract.validate()
+  end
+
+  test "accepts a server that leaves out an opcode but rejects one it renumbers" do
+    opcodes = get_in(NativeServer.startup_payload(), ["capabilities", "opcodes"])
+    without_get = Enum.reject(opcodes, &(&1["name"] == "GET"))
+
+    assert :ok =
+             NativeServer.startup_payload()
+             |> put_in(["capabilities", "opcodes"], without_get)
+             |> ServerContract.validate()
+
+    renumbered = [%{"name" => "GET", "opcode" => 0x0F01} | without_get]
+
+    assert {:error,
+            {:incompatible_server_contract,
+             %{command: "GET", advertised_opcode: 0x0F01, required_opcode: 0x0101}}} =
+             NativeServer.startup_payload()
+             |> put_in(["capabilities", "opcodes"], renumbered)
+             |> ServerContract.validate()
+  end
+
+  test "reads the events a server offers and rejects a malformed event list" do
+    assert ServerContract.events(NativeServer.startup_payload()) == [
+             "AUTH_INVALIDATED",
+             "BACKPRESSURE_CHANGED",
+             "FLOW_WAKE",
+             "GOAWAY",
+             "TOPOLOGY_CHANGED"
+           ]
+
+    assert ServerContract.events(NativeServer.workflow_only_startup_payload()) == []
+
+    for events <- [["GOAWAY", 7], ["GOAWAY", "GOAWAY"], ["GOAWAY" | :tail], "GOAWAY"] do
+      startup = NativeServer.startup_payload(%{"capabilities" => %{"events" => events}})
+
+      assert {:error, {:incompatible_server_contract, %{invalid_capability: "events"}}} =
+               ServerContract.validate(startup)
+    end
   end
 
   test "rejects mandatory fields added to any current SDK schema" do
@@ -214,7 +269,8 @@ defmodule FerricStore.SDK.Native.ServerContractTest do
         "capabilities" => %{
           "opcodes" => [%{"name" => "GET", "opcode" => 0x0101} | :invalid_tail]
         }
-      })
+      }),
+      NativeServer.startup_payload(%{"capabilities" => %{"opcodes" => "GET"}})
     ]
 
     Enum.each(invalid_startups, fn startup ->

@@ -46,7 +46,7 @@ defmodule FerricStore.SDK.Native.SessionBootstrapTest do
     {:ok, connection} =
       RecordingConnectionStub.start_link(NativeServer.startup_payload(), self())
 
-    assert {:ok, nil} =
+    assert {:ok, nil, []} =
              SessionBootstrap.establish(connection,
                client_name: "codec-test",
                username: nil,
@@ -80,5 +80,32 @@ defmodule FerricStore.SDK.Native.SessionBootstrapTest do
                topology_endpoint: nil,
                request_timeout: request_timeout
              )
+  end
+
+  test "subscribes only to the requested events the server offers" do
+    for {startup, subscribed} <- [
+          {NativeServer.startup_payload(), ["TOPOLOGY_CHANGED"]},
+          {NativeServer.workflow_only_startup_payload(), []}
+        ] do
+      {:ok, connection} = RecordingConnectionStub.start_link(startup, self())
+
+      assert {:ok, nil, ^subscribed} =
+               SessionBootstrap.establish(connection,
+                 client_name: "events-test",
+                 username: nil,
+                 password: nil,
+                 events: ["TOPOLOGY_CHANGED"],
+                 topology_endpoint: nil,
+                 request_timeout: fn -> {:ok, 100} end
+               )
+
+      assert_received {:bootstrap_request, 0x0001, _hello}
+
+      if subscribed == [] do
+        refute_received {:bootstrap_request, 0x0011, _payload}
+      else
+        assert_received {:bootstrap_request, 0x0011, %{"events" => ^subscribed}}
+      end
+    end
   end
 end

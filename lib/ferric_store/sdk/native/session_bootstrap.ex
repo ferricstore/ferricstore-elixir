@@ -6,7 +6,11 @@ defmodule FerricStore.SDK.Native.SessionBootstrap do
 
   @type request_timeout :: (-> {:ok, timeout()} | {:error, term()})
 
-  @spec establish(pid(), keyword()) :: {:ok, Topology.t() | nil} | {:error, term()}
+  # HELLO, contract check, AUTH, then a subscription to the requested
+  # `:events` the server offers (a server refuses an event its HELLO leaves
+  # out). Returns the topology and the events subscribed.
+  @spec establish(pid(), keyword()) ::
+          {:ok, Topology.t() | nil, [binary()]} | {:error, term()}
   def establish(conn, opts) when is_pid(conn) and is_list(opts) do
     request_timeout = Keyword.fetch!(opts, :request_timeout)
 
@@ -22,14 +26,20 @@ defmodule FerricStore.SDK.Native.SessionBootstrap do
              Keyword.get(opts, :password),
              timeout
            ),
-         :ok <- subscribe_events(conn, Keyword.get(opts, :events, []), request_timeout),
+         events = offered(hello, Keyword.get(opts, :events, [])),
+         :ok <- subscribe_events(conn, events, request_timeout),
          {:ok, topology} <-
            maybe_load_topology(conn, Keyword.get(opts, :topology_endpoint), request_timeout),
          {:ok, timeout} <- request_timeout.(),
          :ok <- Connection.complete_bootstrap(conn, hello, timeout),
          {:ok, _remaining} <- request_timeout.() do
-      {:ok, topology}
+      {:ok, topology, events}
     end
+  end
+
+  defp offered(hello, requested) do
+    served = ServerContract.events(hello)
+    Enum.filter(requested, &(&1 in served))
   end
 
   defp hello(conn, client_name, timeout) do

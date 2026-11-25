@@ -5,7 +5,9 @@ defmodule FerricStore.Protocol.CapabilityContract do
   alias FerricStore.Protocol.CommandSpec
 
   # Current schemas advertised by the server revision pinned by this SDK.
-  # Commands omitted here do not have an advertised request schema.
+  # Commands omitted here do not have an advertised request schema. A server
+  # need not advertise every one (see ServerContract), but each one it does
+  # advertise must match.
   @required_schemas %{
     "CAS" => ["key", "expected", "value"],
     "CLUSTER.DEMOTE" => ["args"],
@@ -97,13 +99,9 @@ defmodule FerricStore.Protocol.CapabilityContract do
     "ZSCORE" => ["key", "member"]
   }
 
-  # Commands newer than the 0.11.4 compatibility floor. Servers without them
-  # still connect; a call to one fails with the server's own error.
-  @optional_opcodes ["CLUSTER.FEATURES", "CLUSTER.FEATURES.RAISE"]
-
-  @required_opcodes CommandSpec.all()
-                    |> Enum.reject(&(&1.name in @optional_opcodes))
-                    |> Enum.map(&Map.take(&1, [:name, :opcode]))
+  # Every opcode the SDK sends. A server that advertises one must number it
+  # the same; one it leaves out fails with the server's own error.
+  @opcodes Enum.map(CommandSpec.all(), &Map.take(&1, [:name, :opcode]))
   @optional_fields Map.merge(
                      CapabilityOptionalFields.Core.all(),
                      CapabilityOptionalFields.Flow.all()
@@ -118,8 +116,8 @@ defmodule FerricStore.Protocol.CapabilityContract do
                              required ++ Map.fetch!(@optional_fields, command) ++ ["deadline_ms"]}
                           end)
 
-  @spec required_opcodes() :: [%{name: binary(), opcode: non_neg_integer()}]
-  def required_opcodes, do: @required_opcodes
+  @spec opcodes() :: [%{name: binary(), opcode: non_neg_integer()}]
+  def opcodes, do: @opcodes
 
   @spec required_schemas() :: %{binary() => [binary()]}
   def required_schemas, do: @required_schemas

@@ -11,7 +11,7 @@ defmodule FerricStore.SDK.Native.TopologyBootstrap do
     Topology
   }
 
-  @type result :: {:ok, Topology.t(), pid(), term(), map()} | {:error, term()}
+  @type result :: {:ok, Topology.t(), pid(), term(), map(), [binary()]} | {:error, term()}
 
   @spec run([map()], keyword()) :: result()
   def run(candidates, opts) when is_list(candidates) and is_list(opts) do
@@ -49,7 +49,7 @@ defmodule FerricStore.SDK.Native.TopologyBootstrap do
       }
 
       case bootstrap_candidate(endpoint, candidate_context) do
-        {:ok, _topology, _connection, _key, _capacity} = ok ->
+        {:ok, _topology, _connection, _key, _capacity, _events} = ok ->
           ok
 
         {:error, _reason} = error ->
@@ -79,7 +79,7 @@ defmodule FerricStore.SDK.Native.TopologyBootstrap do
 
   defp establish(connection, endpoint, context) do
     result =
-      with {:ok, topology} <-
+      with {:ok, topology, events} <-
              SessionBootstrap.establish(connection,
                client_name: context.client_name,
                username: context.username,
@@ -90,11 +90,11 @@ defmodule FerricStore.SDK.Native.TopologyBootstrap do
              ),
            {:ok, timeout} <- request_timeout(context) do
         {:ok, topology, connection, Topology.endpoint_key(endpoint),
-         Connection.capacity(connection, timeout)}
+         Connection.capacity(connection, timeout), events}
       end
 
     case result do
-      {:ok, _topology, _connection, _key, _capacity} = ok ->
+      {:ok, _topology, _connection, _key, _capacity, _events} = ok ->
         ok
 
       {:error, _reason} = error ->

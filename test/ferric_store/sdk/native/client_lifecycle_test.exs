@@ -12,6 +12,8 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
     Topology
   }
 
+  alias FerricStore.SDK.Native.Coordinator.State
+
   alias FerricStore.Test.{ClientRuntime, NativeServer}
 
   test "each client owns an explicit supervised runtime tree" do
@@ -243,6 +245,34 @@ defmodule FerricStore.SDK.Native.ClientLifecycleTest do
     refute_receive {:native_server_request, %{opcode: 0x0007}}
     assert_eventually(fn -> NativeServer.connection_count(server) == 0 end)
     stop_server(server)
+  end
+
+  test "a client connects to a workflow-only server without subscribing to its events" do
+    response_fun = fn
+      %{opcode: 0x0001} ->
+        NativeServer.raw_startup(NativeServer.workflow_only_startup_payload())
+
+      %{opcode: 0x0007, socket: socket} ->
+        {:ok, {_address, port}} = :inet.sockname(socket)
+        NativeServer.topology_payload(port)
+
+      _request ->
+        "OK"
+    end
+
+    {:ok, server} = NativeServer.start_link(owner: self(), response_fun: response_fun)
+
+    try do
+      assert {:ok, client} = SDK.start_link(seeds: [{"127.0.0.1", NativeServer.port(server)}])
+      assert {:ok, coordinator} = ClientSupervisor.coordinator(client)
+      state = :sys.get_state(coordinator)
+      assert State.event_subscriptions_empty?(state)
+      assert Process.alive?(State.event_connection(state))
+      refute_receive {:native_server_request, %{opcode: 0x0011}}, 100
+      assert :ok = SDK.close(client)
+    after
+      stop_server(server)
+    end
   end
 
   @tag capture_log: true
