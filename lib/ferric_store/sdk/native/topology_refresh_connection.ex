@@ -12,7 +12,7 @@ defmodule FerricStore.SDK.Native.TopologyRefreshConnection do
   @spec bootstrap(pid(), map(), term(), map()) ::
           {:ok, term(), pid(), term(), map()} | {:error, term()}
   def bootstrap(conn, endpoint, key, state) do
-    with {:ok, topology} <-
+    with {:ok, topology, _events} <-
            SessionBootstrap.establish(conn,
              client_name: state.client_name,
              username: state.username,

@@ -167,6 +167,10 @@ defmodule FerricStore.SDK.Native.Coordinator.State do
     do: StateEvents.clear_connection(state, connection)
 
   def put_event_connection(state, connection), do: StateEvents.put_connection(state, connection)
+
+  def start_event_connection(state, connection, subscribed),
+    do: StateEvents.start_connection(state, connection, subscribed)
+
   def event_connection(state), do: StateEvents.connection(state)
   def live_event_connection?(state), do: StateEvents.live_connection?(state)
   def event_subscriptions_empty?(state), do: StateEvents.subscriptions_empty?(state)

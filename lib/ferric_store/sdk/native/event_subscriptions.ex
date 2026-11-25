@@ -50,6 +50,15 @@ defmodule FerricStore.SDK.Native.EventSubscriptions do
   def put_connection(%__MODULE__{} = subscriptions, connection),
     do: %{subscriptions | connection: connection}
 
+  # The first session's connection, with the management events its server
+  # took: a server that offers none (a workflow-only server) is never asked
+  # for them again, on reconnect either.
+  @spec start_connection(t(), pid(), [binary()]) :: t()
+  def start_connection(%__MODULE__{} = subscriptions, connection, subscribed) do
+    management_events = MapSet.intersection(@management_events, MapSet.new(subscribed))
+    %{subscriptions | connection: connection, management_events: management_events}
+  end
+
   @spec clear_connection(t(), pid()) :: t()
   def clear_connection(%__MODULE__{connection: connection} = subscriptions, connection),
     do: %{subscriptions | connection: nil}

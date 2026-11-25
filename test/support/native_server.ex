@@ -22,7 +22,7 @@ defmodule FerricStore.Test.NativeServer do
       end)
 
     opcodes =
-      Enum.map(CapabilityContract.required_opcodes(), fn command ->
+      Enum.map(CapabilityContract.opcodes(), fn command ->
         %{"name" => command.name, "opcode" => command.opcode}
       end)
 
@@ -75,11 +75,28 @@ defmodule FerricStore.Test.NativeServer do
           ]
         },
         "schemas" => schemas,
+        "events" => [
+          "AUTH_INVALIDATED",
+          "BACKPRESSURE_CHANGED",
+          "FLOW_WAKE",
+          "GOAWAY",
+          "TOPOLOGY_CHANGED"
+        ],
         "opcodes" => opcodes
       }
     }
 
     deep_merge(base, overrides)
+  end
+
+  # A workflow-only server (the ferricstore2 node): schemas for the commands
+  # it serves only, no opcode table and no events.
+  def workflow_only_startup_payload do
+    startup = startup_payload()
+    {_opcodes, startup} = pop_in(startup, ["capabilities", "opcodes"])
+    {_events, startup} = pop_in(startup, ["capabilities", "events"])
+    served = Map.take(startup["capabilities"]["schemas"], ["FLOW.POLICY.SET", "FLOW.QUERY"])
+    put_in(startup, ["capabilities", "schemas"], served)
   end
 
   def raw_startup(payload) when is_map(payload), do: {:raw_startup, payload}

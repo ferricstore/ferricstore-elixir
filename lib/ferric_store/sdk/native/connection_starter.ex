@@ -92,7 +92,7 @@ defmodule FerricStore.SDK.Native.ConnectionStarter do
 
   defp establish(conn, state) do
     result =
-      with {:ok, nil} <-
+      with {:ok, nil, _events} <-
              SessionBootstrap.establish(conn,
                client_name: state.client_name,
                username: state.username,

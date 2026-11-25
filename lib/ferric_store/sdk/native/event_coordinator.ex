@@ -78,6 +78,14 @@ defmodule FerricStore.SDK.Native.EventCoordinator do
     %{coordinator | subscriptions: subscriptions}
   end
 
+  @spec start_connection(t(), pid(), [binary()]) :: t()
+  def start_connection(%__MODULE__{} = coordinator, connection, subscribed) do
+    subscriptions =
+      EventSubscriptions.start_connection(coordinator.subscriptions, connection, subscribed)
+
+    %{coordinator | subscriptions: subscriptions}
+  end
+
   @spec clear_connection(t(), pid()) :: t()
   def clear_connection(%__MODULE__{} = coordinator, connection) do
     subscriptions = EventSubscriptions.clear_connection(coordinator.subscriptions, connection)

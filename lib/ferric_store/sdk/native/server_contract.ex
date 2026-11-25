@@ -1,6 +1,11 @@
 defmodule FerricStore.SDK.Native.ServerContract do
   @moduledoc false
 
+  # A server advertises the schemas and opcodes of the commands it serves. The
+  # SDK checks each one it advertises against its own contract and accepts a
+  # server that leaves commands out (a workflow-only server has no key-value
+  # commands): a call to one fails with the server's own error.
+
   alias FerricStore.{Protocol.CapabilityContract, Types}
 
   alias FerricStore.SDK.Native.{
@@ -24,6 +29,7 @@ defmodule FerricStore.SDK.Native.ServerContract do
          {:ok, schemas} <- fetch_map(capabilities, "schemas"),
          :ok <- validate_schemas(schemas),
          :ok <- validate_opcodes(capabilities),
+         :ok <- validate_events(capabilities),
          :ok <- ServerContractProtocol.validate_auth_requirement(startup) do
       :ok
     else
@@ -32,6 +38,15 @@ defmodule FerricStore.SDK.Native.ServerContract do
   end
 
   def validate(startup), do: incompatible(%{invalid_startup: startup})
+
+  @doc false
+  @spec events(map()) :: [binary()]
+  def events(startup) when is_map(startup) do
+    case startup |> Types.get("capabilities", %{}) |> Types.get("events") do
+      events when is_list(events) -> events
+      _missing -> []
+    end
+  end
 
   defp validate_schemas(schemas) do
     CapabilityContract.required_schemas()
@@ -58,7 +73,7 @@ defmodule FerricStore.SDK.Native.ServerContract do
         end
 
       _missing ->
-        {:error, %{missing_schema: command}}
+        :ok
     end
   end
 
@@ -108,15 +123,16 @@ defmodule FerricStore.SDK.Native.ServerContract do
   defp validate_opcodes(capabilities) do
     case Types.get(capabilities, "opcodes") do
       advertised when is_list(advertised) -> validate_advertised_opcodes(advertised)
-      _missing -> {:error, %{missing_capability: "opcodes"}}
+      nil -> :ok
+      invalid -> {:error, %{invalid_capability: "opcodes", value: invalid}}
     end
   end
 
   defp validate_advertised_opcodes(advertised) do
     case ServerContractCollections.index_opcodes(advertised) do
       {:ok, advertised_by_name} ->
-        first_error(CapabilityContract.required_opcodes(), fn required ->
-          validate_opcode(advertised_by_name, required)
+        first_error(CapabilityContract.opcodes(), fn command ->
+          validate_opcode(advertised_by_name, command)
         end)
 
       {:error, reason} ->
@@ -133,7 +149,23 @@ defmodule FerricStore.SDK.Native.ServerContract do
         {:error, %{command: command, advertised_opcode: actual, required_opcode: expected}}
 
       :error ->
-        {:error, %{command: command, missing_opcode: expected}}
+        :ok
+    end
+  end
+
+  defp validate_events(capabilities) do
+    case Types.get(capabilities, "events") do
+      nil ->
+        :ok
+
+      events when is_list(events) ->
+        case ServerContractCollections.required_fields(events) do
+          {:ok, _events} -> :ok
+          {:error, reason} -> {:error, %{invalid_capability: "events", reason: reason}}
+        end
+
+      invalid ->
+        {:error, %{invalid_capability: "events", reason: {:not_a_list, invalid}}}
     end
   end
 

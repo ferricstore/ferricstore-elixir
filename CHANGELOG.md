@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Connect to a server that serves only some commands, such as the
+  workflow-only ferricstore2 node. The connection contract now checks each
+  schema and opcode a server advertises in HELLO and no longer refuses one
+  that leaves commands out; a call to a command it leaves out fails with the
+  server's own error. A malformed `opcodes` or `events` capability is still
+  refused.
+- Subscribe to `TOPOLOGY_CHANGED` only when HELLO's `events` lists it, at
+  startup and on every reconnect.
+
 ## 0.14.0 - 2026-11-09
 
 - Add `FerricStore.Workflow.wait_for_children/4` and

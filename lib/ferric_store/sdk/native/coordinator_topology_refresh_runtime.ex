@@ -23,7 +23,7 @@ defmodule FerricStore.SDK.Native.CoordinatorTopologyRefreshRuntime do
       state,
       &CoordinatorConnectionRuntime.track/4,
       &CoordinatorConnectionAcquisition.warm/1,
-      &State.put_event_connection/2
+      &State.start_event_connection/3
     )
   end
 

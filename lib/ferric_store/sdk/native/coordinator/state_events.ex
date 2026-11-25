@@ -27,6 +27,13 @@ defmodule FerricStore.SDK.Native.Coordinator.StateEvents do
     do:
       put_coordinator(state, EventCoordinator.put_connection(state.event_coordinator, connection))
 
+  def start_connection(state, connection, subscribed),
+    do:
+      put_coordinator(
+        state,
+        EventCoordinator.start_connection(state.event_coordinator, connection, subscribed)
+      )
+
   def connection(%{event_coordinator: coordinator}), do: EventCoordinator.connection(coordinator)
 
   def live_connection?(%{event_coordinator: coordinator}),
